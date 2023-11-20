@@ -76,24 +76,29 @@ checking_df = checking_df.drop(columns='combo')
 original_output_data = original_output_data.drop(columns='combo')
 
 
-#add category column - column will be used in pivots/charts/summary stuff
-checking_df['Category'] = ''
+#left join checking_df to mapping
+checking_df = pd.merge(checking_df, mapping_df, left_on='Description', right_on='Description', how='left')
+checking_df['Mapping'] = checking_df['Mapping'].fillna(checking_df['Description'])
 
-#update values
-# def update_description(description):
-#     if any(substring in description for substring in ['NCSA Paycheck', 
-#                                                         'Interest Paid']):
-#         return 'Input'
-#     elif '' in description:
-#         return 'NFCU Checking'
-#     else:
-#         return ''
+#left join tiers_df on Level 3 = Description
+checking_df = pd.merge(checking_df, tiers_df, left_on='Mapping', right_on='Level 3', how='left')
+checking_df = pd.merge(checking_df, tiers_df, left_on='Mapping', right_on='Level 2', how='left', suffixes=('_level3', '_level2'))
 
-# def update_df(df):
-#     for index, row in df.iterrows():
-#         df.at[index, 'Description'] = update_description(row['Description'])
+checking_df['Final_Level 1'] = checking_df['Level 1_level3'].combine_first(checking_df['Level 1_level2'])
+checking_df['Final_Level 2'] = checking_df['Level 2_level3'].combine_first(checking_df['Level 2_level2'])
+checking_df['Final_Level 3'] = checking_df['Level 3_level3'].combine_first(checking_df['Level 3_level2'])
 
-# update_df(checking_df)
+columns_to_drop = ['Level 1_level3', 'Level 2_level3', 'Level 3_level3',
+                'Level 1_level2', 'Level 2_level2', 'Level 3_level2',
+                'Mapping']
+checking_df = checking_df.drop(columns=columns_to_drop)
+
+checking_df = checking_df.rename(columns={'Final_Level 1':'Level 1',
+                            'Final_Level 2':'Level 2',
+                            'Final_Level 3':'Level 3',})
+columns_to_fillna = ['Level 1', 'Level 2', 'Level 3']
+checking_df[columns_to_fillna] = checking_df[columns_to_fillna].fillna('')
+
 
 
 #append to google sheets

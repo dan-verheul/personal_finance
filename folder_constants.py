@@ -30,5 +30,17 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
 client = gspread.authorize(creds)
 
-#1
 spreadsheet = client.open(workbook_name)
+
+#tiers df
+worksheet = spreadsheet.worksheet('Config')
+range_to_pull = 'A1:C'
+data = worksheet.get(range_to_pull)
+tiers_df = pd.DataFrame(data[1:], columns=data[0])
+tiers_df['Level 3'] = tiers_df['Level 3'].fillna('')
+
+#mapping df
+worksheet = spreadsheet.worksheet('Config')
+range_to_pull = 'E1:F'
+data = worksheet.get(range_to_pull)
+mapping_df = pd.DataFrame(data[1:], columns=data[0])
