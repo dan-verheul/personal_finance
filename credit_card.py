@@ -1,24 +1,12 @@
 #import setup
 from folder_constants import *
 
-#1
-worksheet = spreadsheet.worksheet('Uploads')
-data = worksheet.get_all_values()
-credit_card_df = pd.DataFrame(data[2:], columns=data[1])
-credit_card_df = credit_card_df.iloc[:, :5]
-credit_card_df = credit_card_df.rename(columns={'Debit':'Spent','Credit':'Refunded'})
-credit_card_df = credit_card_df.drop(columns='Posted Date')
-credit_card_df = credit_card_df.replace('', pd.NA)  # Replace empty strings with pandas' NA
-credit_card_df = credit_card_df.dropna(how='all').reset_index(drop=True) #drop rows where the entire row is na
-credit_card_df = credit_card_df.fillna('') #switch na back to ''
+#pick the needed df's from folder_constants.py
+method = 'credit_card'
+original_output_data = original_output_dataframes[method]
+upload_df = upload_df_dictionary[method]
+original_upload_df = upload_df.copy()
 
-#2
-worksheet = spreadsheet.worksheet('Credit Card Output')
-data = worksheet.get_all_values()
-original_output_data = pd.DataFrame(data[1:], columns=data[0])
-original_output_data['Transaction Date'] = pd.to_datetime(original_output_data['Transaction Date'])
-
-#3
 worksheet = spreadsheet.worksheet('Lookup')
 data = worksheet.get_all_values()
 columns_a_to_c = [row[:3] for row in data]
@@ -34,19 +22,19 @@ lookup_df['Occurrences'] = lookup_df.groupby('Store')['Store'].transform('count'
 
 
 #common abbreviations
-credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: x.lower() if isinstance(x, str) else x)
-credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: 'Amazon' if 'amzn' in x.lower() else x)
-credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: 'Amazon' if 'amazon' in x.lower() else x)
-credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: 'El Guero Tacos in Tucson' if 'el guero' in x.lower() else x)
-credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: 'Tacos Tucson (Street- Taco and Beer Co)' if 'tacos tucson az' in x.lower() else x)
-credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: 'The Monica - Tucson' if 'the monica' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: x.lower() if isinstance(x, str) else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Amazon' if 'amzn' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Amazon' if 'amazon' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'El Guero Tacos in Tucson' if 'el guero' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Tacos Tucson (Street- Taco and Beer Co)' if 'tacos tucson az' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'The Monica - Tucson' if 'the monica' in x.lower() else x)
 
 #get simplified store
 def partial_string_match(s1, s2):
     return s1.lower() in s2.lower()
-result_df = credit_card_df.copy()
+result_df = upload_df.copy()
 for column in lookup_df.columns:
-    result_df[column] = credit_card_df['Description'].apply(lambda x: lookup_df['Store'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else None)
+    result_df[column] = upload_df['Description'].apply(lambda x: lookup_df['Store'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else None)
 result_df.drop(columns=['Category','Sub Category','Occurrences'],inplace=True) #Bring in all cols, just drop these since they're all the same
 result_df['Store'].fillna("", inplace=True)
 
@@ -78,9 +66,15 @@ if len(result_df) > 0:
     result_df = result_df.reset_index(drop = True)
     result_df = result_df.drop(columns='Occurrences')
 
+    # format, add combo col
+    original_output_data, upload_df = format_and_combo(original_output_data, result_df)
+
+    # remove rows already stored in output sheet so they're not uploaded twice
+    upload_df = remove_rows_already_saved(original_output_data,upload_df)
+
     #fix amazon categories, by default they are shopping but put these in another df and create a loop that updates each category value, then add back to df
-    amazon_df = result_df[result_df['Store'] == 'Amazon'].reset_index(drop=True)
-    result_df = result_df[result_df['Store'] != 'Amazon'].reset_index(drop=True)
+    amazon_df = upload_df[upload_df['Store'] == 'Amazon'].reset_index(drop=True)
+    upload_df = upload_df[upload_df['Store'] != 'Amazon'].reset_index(drop=True)
 
     amazon_df['Sub Category'] = amazon_df['Sub Category'].replace('Amazon','')
 
@@ -93,7 +87,7 @@ if len(result_df) > 0:
         store = row['Store']
         distinct_categories = lookup_df['Category'][lookup_df['Category'] != ''].drop_duplicates().tolist()
 
-        print(f"\nOn {date}, there was a ${spent:.2f} charge on {store}. What kind of purchase was this?")
+        print(f"\nOn {date}, there was a ${float(spent):.2f} charge on {store}. What kind of purchase was this?")
         for i, category in enumerate(distinct_categories):
             print(f"{i+1}. {category}")
         selected_index = input("Enter the number corresponding \nto your choice: ")
@@ -109,16 +103,16 @@ if len(result_df) > 0:
         spent = row['Spent']
         store = row['Store']
         
-        user_input = input(f"On {date}, there was a ${spent:.2f} charge on {store}. What was this? If no note needed, just press Enter with no text")
+        user_input = input(f"On {date}, there was a ${float(spent):.2f} charge on {store}. What was this? If no note needed, just press Enter with no text")
         amazon_df.at[index,'Notes'] = user_input
 
 
     # add notes column to main df
-    main_df = result_df[['Transaction Date','Store','Spent','Refunded','Category','Sub Category']]
-    main_df['Notes']=''
-    main_df = pd.concat([main_df, amazon_df], ignore_index=True)
-    main_df = main_df.drop(columns='Description')
-    main_df = main_df.sort_values(by=['Transaction Date','Store'], ascending=[False, True]).reset_index(drop=True)
+    non_multistore_df = upload_df[['Transaction Date','Store','Spent','Refunded','Category','Sub Category']]
+    non_multistore_df['Notes']=''
+    upload_df = pd.concat([non_multistore_df, amazon_df], ignore_index=True)
+    upload_df = upload_df.drop(columns='Description')
+    upload_df = upload_df.sort_values(by=['Transaction Date','Store'], ascending=[False, True]).reset_index(drop=True)
     #figure out best way to add notes
 
     # TRAVEL LOGIC
@@ -148,105 +142,74 @@ if len(result_df) > 0:
 
 
     #look at main_df, if category is in list and transaction date is in travel_df, then change to Travel category and move Category to Sub Category
-    main_df['Transaction Date'] = pd.to_datetime(main_df['Transaction Date'])
+    upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
     travel_df['Date'] = pd.to_datetime(travel_df['Date'])
 
-    main_df = main_df.merge(travel_df, left_on='Transaction Date', right_on='Date', how='left')
-    main_df = main_df.drop(columns=['Date'])
-    main_df = main_df.rename(columns={'Notes (required)':'Travel'})
-    main_df['Travel'].fillna('', inplace=True)
+    upload_df = upload_df.merge(travel_df, left_on='Transaction Date', right_on='Date', how='left')
+    upload_df = upload_df.drop(columns=['Date'])
+    upload_df = upload_df.rename(columns={'Notes (required)':'Travel'})
+    upload_df['Travel'].fillna('', inplace=True)
 
     #if Travel Day = 'Yes' and Category in travel_categories, then make adjustments
-    condition = main_df['Travel'] != ''
-    sub_category_present = main_df['Sub Category'] != ''
-    not_in_not_travel_subcategories = main_df['Sub Category'].isin(not_travel_subcategories)
+    condition = upload_df['Travel'] != ''
+    sub_category_present = upload_df['Sub Category'] != ''
+    not_in_not_travel_subcategories = upload_df['Sub Category'].isin(not_travel_subcategories)
 
-    main_df.loc[condition & sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = main_df['Category'] + ' - ' + main_df['Sub Category']
-    main_df.loc[condition & ~sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = main_df['Category']
-    main_df.loc[condition & ~not_in_not_travel_subcategories, 'Category'] = 'Travel'
+    upload_df.loc[condition & sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = upload_df['Category'] + ' - ' + upload_df['Sub Category']
+    upload_df.loc[condition & ~sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = upload_df['Category']
+    upload_df.loc[condition & ~not_in_not_travel_subcategories, 'Category'] = 'Travel'
 
     #if non travel purchase made during travel, then remove value under Travel column
-    mask = (main_df['Travel'].notnull()) & (main_df['Category'] != 'Travel')
-    main_df.loc[mask, 'Travel'] = ''
+    mask = (upload_df['Travel'].notnull()) & (upload_df['Category'] != 'Travel')
+    upload_df.loc[mask, 'Travel'] = ''
 
 
     # get ready for Google Sheets upload
     #if we have a blank store, then pull in the description. Left join the transaction date, spent, and refunded columns to original df
-    blank_store = main_df[main_df['Store'] == ''].copy().reset_index(drop=True)
-    main_df = main_df[main_df['Store'] != ''].reset_index(drop=True)
+    blank_store = upload_df[upload_df['Store'] == ''].copy().reset_index(drop=True)
+    upload_df = upload_df[upload_df['Store'] != ''].reset_index(drop=True)
 
-    blank_store['Spent'] = pd.to_numeric(blank_store['Spent'], errors='coerce')
-    blank_store['Refunded'] = pd.to_numeric(blank_store['Refunded'], errors='coerce')
-    credit_card_df['Spent'] = pd.to_numeric(credit_card_df['Spent'], errors='coerce')
-    credit_card_df['Refunded'] = pd.to_numeric(credit_card_df['Refunded'], errors='coerce')
-
-    blank_store['Spent'] = blank_store['Spent'].astype(float)
-    blank_store['Refunded'] = blank_store['Refunded'].astype(float)
-    credit_card_df['Spent'] = credit_card_df['Spent'].astype(float)
-    credit_card_df['Refunded'] = credit_card_df['Refunded'].astype(float)
+    # a bunch of datatype casting for a left join..silliness.
+    original_upload_df['Transaction Date'] = pd.to_datetime(original_upload_df['Transaction Date'])
     blank_store['Transaction Date'] = pd.to_datetime(blank_store['Transaction Date'])
-    credit_card_df['Transaction Date'] = pd.to_datetime(credit_card_df['Transaction Date'], format='%m/%d/%Y')
-
-    blank_store = pd.merge(blank_store, credit_card_df, on=['Transaction Date', 'Spent', 'Refunded'], how='left')
+    original_upload_df['Spent'] = pd.to_numeric(original_upload_df['Spent'], errors='coerce').fillna(0)
+    original_upload_df['Refunded'] = pd.to_numeric(original_upload_df['Refunded'], errors='coerce').fillna(0)
+    blank_store['Spent'] = pd.to_numeric(blank_store['Spent'], errors='coerce').fillna(0)
+    blank_store['Refunded'] = pd.to_numeric(blank_store['Refunded'], errors='coerce').fillna(0)
+    blank_store = pd.merge(blank_store, original_upload_df, on=['Transaction Date', 'Spent', 'Refunded'], how='left')
     blank_store['Store'] = blank_store['Description']
     blank_store = blank_store.drop(columns=['Description'])
 
     #combined df's back together and reorder and reset index
-    main_df = pd.concat([main_df, blank_store], ignore_index=True)
-    main_df['Transaction Date'] = pd.to_datetime(main_df['Transaction Date'])
-    main_df = main_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
-    main_df = main_df.fillna('')
-
-
-    
-
-    #now we want to filter out rows that are already in the original_output_data df
-    #create combo columns
-    original_output_data['Spent'] = original_output_data['Spent'].replace('[\$,]', '', regex=True)
-    main_df['Spent'] = pd.to_numeric(main_df['Spent']).map('{:.2f}'.format).astype(str)
-    main_df['Transaction Date'] = pd.to_datetime(main_df['Transaction Date']).astype(str)
-    main_df['combo'] = ''
-    for index, row in main_df.iterrows():
-        if row['Store'] != "":
-            main_df.at[index, 'combo'] = row['Transaction Date'] + row['Store'] + row['Spent']
-        else:
-            main_df.at[index, 'combo'] = row['Transaction Date'] + row['Description'] + row['Spent']
-
-    original_output_data['Transaction Date'] = pd.to_datetime(original_output_data['Transaction Date']).astype(str)
-    original_output_data['Spent'] = original_output_data['Spent'].astype(str)        
-    original_output_data['combo'] = original_output_data['Transaction Date'] + original_output_data['Store'] + original_output_data['Spent']
-    main_df['combo'] = main_df['combo'].astype(str)
-    original_output_data['combo'] = original_output_data['combo'].astype(str)
-    main_df['combo'] = main_df['combo'].str.strip()
-    original_output_data['combo'] = original_output_data['combo'].str.strip()
-
-    #if main_df combo column value in original_output_data combo col, then remove the row
-    main_df = main_df[~main_df['combo'].isin(original_output_data['combo'])]
-    #drop the cols
-    main_df = main_df.drop(columns='combo')
-    original_output_data = original_output_data.drop(columns='combo')
+    upload_df = pd.concat([upload_df, blank_store], ignore_index=True)
+    upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
+    upload_df = upload_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
+    upload_df = upload_df.fillna('')
 
     # we want to combine these new rows with what we originally had pulled from "Credit Card Output", then replace everything in google sheets
     #combine original_output_data with main_df
-    if len(main_df)>0:
-        upload_df = pd.concat([main_df,original_output_data],ignore_index=True)
+    if len(upload_df)>0:
+        upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
+        if 'combo' in upload_df.columns:
+            upload_df = upload_df.drop('combo', axis=1)
+
+        upload_df['Refunded'] = upload_df['Refunded'].replace(0, '')
         
         #rolling 12 months col for pivot table
         upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
         upload_df['MonthTrunc'] = upload_df['Transaction Date'].dt.to_period('M')
         max_month = upload_df['MonthTrunc'].max()
         upload_df['Rolling12'] = ['Yes' if (max_month - x).n <= 12 else 'No' for x in upload_df['MonthTrunc']]
-
         #drop monthtrunc
         upload_df = upload_df.drop(columns='MonthTrunc')
 
         #format and sort
-        upload_df = upload_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
+        upload_df = upload_df.sort_values(by=['Transaction Date','Travel']).reset_index(drop=True)
         upload_df['Transaction Date'] = upload_df['Transaction Date'].astype(str)
         upload_df['Spent'] = upload_df['Spent'].astype(float)
 
         #upload
-        worksheet = spreadsheet.worksheet('Credit Card Output')
-        worksheet.clear()
-        data = [upload_df.columns.tolist()] + upload_df.values.tolist()
-        worksheet.update('A1', data)
+        worksheet = spreadsheet.worksheet('Outputs')
+        worksheet.range(sheets_info_dict[method][1]).clear()
+        data = upload_df.values.tolist()
+        worksheet.update(sheets_info_dict[method][0], data)
