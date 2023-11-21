@@ -2,16 +2,21 @@
 from folder_constants import *
 
 #1
-worksheet = spreadsheet.worksheet('Credit Card Upload')
+worksheet = spreadsheet.worksheet('Uploads')
 data = worksheet.get_all_values()
-credit_card_df = pd.DataFrame(data[1:], columns=data[0])
+credit_card_df = pd.DataFrame(data[2:], columns=data[1])
+credit_card_df = credit_card_df.iloc[:, :5]
 credit_card_df = credit_card_df.rename(columns={'Debit':'Spent','Credit':'Refunded'})
 credit_card_df = credit_card_df.drop(columns='Posted Date')
+credit_card_df = credit_card_df.replace('', pd.NA)  # Replace empty strings with pandas' NA
+credit_card_df = credit_card_df.dropna(how='all').reset_index(drop=True) #drop rows where the entire row is na
+credit_card_df = credit_card_df.fillna('') #switch na back to ''
 
 #2
 worksheet = spreadsheet.worksheet('Credit Card Output')
 data = worksheet.get_all_values()
 original_output_data = pd.DataFrame(data[1:], columns=data[0])
+original_output_data['Transaction Date'] = pd.to_datetime(original_output_data['Transaction Date'])
 
 #3
 worksheet = spreadsheet.worksheet('Lookup')
@@ -45,29 +50,6 @@ for column in lookup_df.columns:
 result_df.drop(columns=['Category','Sub Category','Occurrences'],inplace=True) #Bring in all cols, just drop these since they're all the same
 result_df['Store'].fillna("", inplace=True)
 
-#now we want to filter out rows that are already in the original_output_data df
-#create combo columns
-original_output_data['Spent'] = original_output_data['Spent'].replace('[\$,]', '', regex=True)
-result_df['Spent'] = pd.to_numeric(result_df['Spent']).map('{:.2f}'.format).astype(str)
-result_df['Transaction Date'] = pd.to_datetime(result_df['Transaction Date'], format='%m/%d/%Y').astype(str)
-
-result_df['combo'] = ''
-for index, row in result_df.iterrows():
-    if row['Store'] != "":
-        result_df.at[index, 'combo'] = row['Transaction Date'] + row['Store'] + row['Spent']
-    else:
-        result_df.at[index, 'combo'] = row['Transaction Date'] + row['Description'] + row['Spent']
-original_output_data['combo'] = original_output_data['Transaction Date'] + original_output_data['Store'] + original_output_data['Spent']
-result_df['combo'] = result_df['combo'].astype(str)
-original_output_data['combo'] = original_output_data['combo'].astype(str)
-result_df['combo'] = result_df['combo'].str.strip()
-original_output_data['combo'] = original_output_data['combo'].str.strip()
-
-#if result_df combo column value in original_output_data combo col, then remove the row
-result_df = result_df[~result_df['combo'].isin(original_output_data['combo'])]
-#drop the cols
-result_df = result_df.drop(columns='combo')
-original_output_data = original_output_data.drop(columns='combo')
 
 
 #left join to get Category and Sub Category
@@ -216,18 +198,55 @@ if len(result_df) > 0:
     main_df = main_df.fillna('')
 
 
+    
+
+    #now we want to filter out rows that are already in the original_output_data df
+    #create combo columns
+    original_output_data['Spent'] = original_output_data['Spent'].replace('[\$,]', '', regex=True)
+    main_df['Spent'] = pd.to_numeric(main_df['Spent']).map('{:.2f}'.format).astype(str)
+    main_df['Transaction Date'] = pd.to_datetime(main_df['Transaction Date']).astype(str)
+    main_df['combo'] = ''
+    for index, row in main_df.iterrows():
+        if row['Store'] != "":
+            main_df.at[index, 'combo'] = row['Transaction Date'] + row['Store'] + row['Spent']
+        else:
+            main_df.at[index, 'combo'] = row['Transaction Date'] + row['Description'] + row['Spent']
+
+    original_output_data['Transaction Date'] = pd.to_datetime(original_output_data['Transaction Date']).astype(str)
+    original_output_data['Spent'] = original_output_data['Spent'].astype(str)        
+    original_output_data['combo'] = original_output_data['Transaction Date'] + original_output_data['Store'] + original_output_data['Spent']
+    main_df['combo'] = main_df['combo'].astype(str)
+    original_output_data['combo'] = original_output_data['combo'].astype(str)
+    main_df['combo'] = main_df['combo'].str.strip()
+    original_output_data['combo'] = original_output_data['combo'].str.strip()
+
+    #if main_df combo column value in original_output_data combo col, then remove the row
+    main_df = main_df[~main_df['combo'].isin(original_output_data['combo'])]
+    #drop the cols
+    main_df = main_df.drop(columns='combo')
+    original_output_data = original_output_data.drop(columns='combo')
 
     # we want to combine these new rows with what we originally had pulled from "Credit Card Output", then replace everything in google sheets
     #combine original_output_data with main_df
-    upload_df = pd.concat([main_df,original_output_data],ignore_index=True)
+    if len(main_df)>0:
+        upload_df = pd.concat([main_df,original_output_data],ignore_index=True)
+        
+        #rolling 12 months col for pivot table
+        upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
+        upload_df['MonthTrunc'] = upload_df['Transaction Date'].dt.to_period('M')
+        max_month = upload_df['MonthTrunc'].max()
+        upload_df['Rolling12'] = ['Yes' if (max_month - x).n <= 12 else 'No' for x in upload_df['MonthTrunc']]
 
-    #format and sort
-    upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
-    upload_df = upload_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
-    upload_df['Transaction Date'] = upload_df['Transaction Date'].astype(str)
+        #drop monthtrunc
+        upload_df = upload_df.drop(columns='MonthTrunc')
 
-    #upload
-    worksheet = spreadsheet.worksheet('Credit Card Output')
-    worksheet.clear()
-    data = [upload_df.columns.tolist()] + upload_df.values.tolist()
-    worksheet.update('A1', data)
+        #format and sort
+        upload_df = upload_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
+        upload_df['Transaction Date'] = upload_df['Transaction Date'].astype(str)
+        upload_df['Spent'] = upload_df['Spent'].astype(float)
+
+        #upload
+        worksheet = spreadsheet.worksheet('Credit Card Output')
+        worksheet.clear()
+        data = [upload_df.columns.tolist()] + upload_df.values.tolist()
+        worksheet.update('A1', data)
