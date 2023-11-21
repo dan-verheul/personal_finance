@@ -44,3 +44,9 @@ worksheet = spreadsheet.worksheet('Config')
 range_to_pull = 'E1:F'
 data = worksheet.get(range_to_pull)
 mapping_df = pd.DataFrame(data[1:], columns=data[0])
+
+#bucket percentages df
+worksheet = spreadsheet.worksheet('Config')
+range_to_pull = 'H1:K'
+data = worksheet.get(range_to_pull)
+bucket_df = pd.DataFrame(data[1:], columns=data[0])
