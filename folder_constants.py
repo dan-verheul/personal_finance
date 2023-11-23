@@ -45,18 +45,25 @@ range_to_pull = 'E1:F'
 data = worksheet.get(range_to_pull)
 mapping_df = pd.DataFrame(data[1:], columns=data[0])
 
-#bucket percentages df
+#ally bucket percentages df
 worksheet = spreadsheet.worksheet('Config')
 range_to_pull = 'H1:K'
 data = worksheet.get(range_to_pull)
 bucket_df = pd.DataFrame(data[1:], columns=data[0])
 
+#budget percentages df
+worksheet = spreadsheet.worksheet('Config')
+range_to_pull = 'M1:O'
+data = worksheet.get(range_to_pull)
+budget_df = pd.DataFrame(data[1:], columns=data[0])
+budget_df['Budget'] = budget_df['Budget'].str.replace('$', '').astype(float).fillna(0)
+
 
 #################### GOOGLE SHEETS INFO ####################
 sheets_info_dict = {
-    'credit_card': ['A3','A3:I'],
-    'savings': ['L3','L3:O'],
-    'checking': ['R3','R3:X']
+    'credit_card': ['A3','A3:J'],
+    'savings': ['M3','M3:P'],
+    'checking': ['S3','S3:Y']
 }
 
 ##################### UPLOAD DATAFRAMES ####################

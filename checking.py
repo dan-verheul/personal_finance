@@ -106,6 +106,7 @@ original_output_data, upload_df = format_and_combo(original_output_data, upload_
 # remove rows already stored in output sheet so they're not uploaded twice
 upload_df = remove_rows_already_saved(original_output_data,upload_df)
 
+# now join the upload_df with the original_df to include original rows
 upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
 if 'combo' in upload_df.columns:
             upload_df = upload_df.drop('combo', axis=1)
@@ -118,13 +119,14 @@ if len(upload_df) > 0:
     upload_df['Date'] = upload_df['Date'].astype(str)
     upload_df['Amount'] = upload_df['Amount'].astype(float)
 
-    #clear
+    # Update Google Sheets
+    # clear
     worksheet = spreadsheet.worksheet('Outputs')
     range_to_clear = worksheet.range(sheets_info_dict[method][1])
     for cell in range_to_clear:
         cell.value = ''
     worksheet.update_cells(range_to_clear)
-
+    #upload
     data = upload_df.values.tolist()
     worksheet.update(sheets_info_dict[method][0], data)
 
