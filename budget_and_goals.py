@@ -55,10 +55,3 @@ overview_df['Percentage'] = overview_df['Yearly'] / overview_df.loc[gross_pay_in
 # Drop the 'Gross Pay' row
 overview_df = overview_df[overview_df['Category'] != 'Gross Pay']
 
-#pie chart
-import matplotlib.pyplot as plt
-plt.figure(figsize=(8, 8))
-plt.pie(overview_df['Percentage'], labels=overview_df['Category'], autopct='%1.1f%%', startangle=140)
-plt.axis('equal')
-
-plt.show()

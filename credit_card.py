@@ -28,6 +28,9 @@ upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Amazon' if 
 upload_df['Description'] = upload_df['Description'].apply(lambda x: 'El Guero Tacos in Tucson' if 'el guero' in x.lower() else x)
 upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Tacos Tucson (Street- Taco and Beer Co)' if 'tacos tucson az' in x.lower() else x)
 upload_df['Description'] = upload_df['Description'].apply(lambda x: 'The Monica - Tucson' if 'the monica' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Instacart' if 'insta wwwbjscom' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'NFCU Interest' if 'cash adva nces' in x.lower() else x)
+upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Pho Chandler' if 'pho chandler chandler az' in x.lower() else x)
 
 #get simplified store
 def partial_string_match(s1, s2):
@@ -38,6 +41,34 @@ for column in lookup_df.columns:
 result_df.drop(columns=['Category','Sub Category','Occurrences'],inplace=True) #Bring in all cols, just drop these since they're all the same
 result_df['Store'].fillna("", inplace=True)
 
+#check for rows that didn't pull value
+nonstore_df = result_df[result_df['Store'] == '']
+result_df = result_df[result_df['Store'] != '']
+nonstore_df.reset_index(drop=True, inplace=True)
+result_df.reset_index(drop=True, inplace=True)
+
+#remove 'chandler','gilbert','tucson','tempe','phoenix','az','arizona' from descriptions
+exclusions = ['chandler','gilbert','tucson','tempe','phoenix','az','arizona']
+def remove_words(description):
+    for word in exclusions:
+        description = description.replace(word, '')
+    return description
+nonstore_df['Description'] = nonstore_df['Description'].apply(remove_words)
+
+#partial match
+def find_partial_match(description):
+    for part in description.split():
+        partial_match = lookup_df.loc[lookup_df['Store'].astype(str).str.contains(part, case=False), 'Store']
+        if not partial_match.empty:
+            return partial_match.iloc[0]  # Return the first match found
+nonstore_df['Partial Match'] = nonstore_df['Description'].apply(find_partial_match)
+
+#fix layout
+nonstore_df['Store'] = nonstore_df['Partial Match']
+nonstore_df = nonstore_df.drop(columns=['Partial Match'])
+
+#combine dfs again for final result_df
+result_df = pd.concat([result_df, nonstore_df], axis=0, ignore_index=True)
 
 
 #left join to get Category and Sub Category
@@ -186,13 +217,21 @@ if len(result_df) > 0:
     upload_df = upload_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
     upload_df = upload_df.fillna('')
 
+    #add column that gets category totals partitioned by cycle date
+    upload_df['Spent'] = pd.to_numeric(upload_df['Spent'], errors='coerce')
+    upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
+    upload_df = upload_df.sort_values(by='Transaction Date')
+    
+
     # we want to combine these new rows with what we originally had pulled from "Credit Card Output", then replace everything in google sheets
     #combine original_output_data with main_df
     if len(upload_df)>0:
         upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
         if 'combo' in upload_df.columns:
             upload_df = upload_df.drop('combo', axis=1)
-
+        if 'Cycle Totals' in upload_df.columns:
+            upload_df = upload_df.drop('Cycle Totals', axis=1)
+                                   
         upload_df['Refunded'] = upload_df['Refunded'].replace(0, '')
         
         #rolling 12 months col for pivot table
@@ -214,6 +253,44 @@ if len(result_df) > 0:
         data = upload_df.values.tolist()
         worksheet.update(sheets_info_dict[method][0], data)
 
+        
+        ### Add pivot data
+        #get totals by category and date, for pivot tables
+        pivot_df = upload_df.copy()
+        # pivot_df = pivot_df.drop(columns=['Store','Refunded','Notes','Travel','Cycle Totals','Rolling12'])
+        pivot_df['Transaction Date'] = pd.to_datetime(pivot_df['Transaction Date'])
+        pivot_df['Spent'] = pd.to_numeric(pivot_df['Spent'], errors='coerce').fillna(0)
+        pivot_df['Average Spent by Day'] = pivot_df.groupby(['Transaction Date', 'Category'])['Spent'].transform('mean').round(2)
+        pivot_df = pivot_df.drop(columns=['Spent'])
+        pivot_df = pivot_df.groupby(['Transaction Date', 'Category'])['Average Spent by Day'].sum().reset_index()
+        pivot_df = pivot_df.sort_values(by='Transaction Date')
+
+        pivot_df['Cycle Start'] = pivot_df['Transaction Date'].dt.to_period('M')
+        pivot_df['Cycle Total'] = pivot_df.groupby(['Cycle Start', 'Category'])['Average Spent by Day'].cumsum()
+        pivot_df = pivot_df.drop(columns='Cycle Start')
+
+
+        first_day_prior_month = pd.Timestamp.now() - pd.DateOffset(months=1)
+        first_day_prior_month = first_day_prior_month.replace(day=1)
+        date_range = pd.date_range(first_day_prior_month, pd.Timestamp.now() - pd.DateOffset(1), freq='D').date
+        category_subcategory_combinations = pivot_df[['Category']].drop_duplicates()
+        all_combinations = pd.MultiIndex.from_product([date_range, category_subcategory_combinations['Category']], names=['Transaction Date', 'Category']).to_frame(index=False).reset_index(drop=True)
+        all_combinations['Transaction Date'] = pd.to_datetime(all_combinations['Transaction Date'])
+        final_pivot = pd.merge(all_combinations, pivot_df, how='left', on=['Transaction Date', 'Category'])
+        final_pivot = final_pivot.drop_duplicates()
+        final_pivot = final_pivot.drop(columns='Average Spent by Day')
+        final_pivot['Cycle Total'] = final_pivot.groupby(['Category'])['Cycle Total'].fillna(method='ffill')
+        final_pivot = final_pivot.dropna(subset=['Cycle Total']).reset_index(drop=True)
+
+        #pull in budget
+        final_pivot = pd.merge(final_pivot, budget_df, left_on='Category', right_on='Category', how='left')
+        final_pivot['Days in Month'] = final_pivot['Transaction Date'].dt.days_in_month
+        final_pivot['Day Number'] = final_pivot['Transaction Date'].dt.day
+        final_pivot['Budget'] = final_pivot.apply(lambda row: row['Budget'] / row['Days in Month'] * row['Day Number'] if row['Type'] == 'Gradual' else row['Budget'], axis=1).round(2).fillna(0)
+        final_pivot = final_pivot.drop(columns=['Type','Days in Month','Day Number'])
+        final_pivot = final_pivot.rename(columns={'Cycle Total':'Spent'})
+
+
         # Update excel
         import openpyxl
         if os.path.basename(current_directory) == 'GitHub':
@@ -224,7 +301,7 @@ if len(result_df) > 0:
         outputs_sheet = workbook['Outputs']
 
         # Clear A3:E10000
-        for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=1, max_col=9):
+        for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=1, max_col=upload_df.shape[1]):
             for cell in row:
                 cell.value = None
 
@@ -233,5 +310,21 @@ if len(result_df) > 0:
         for row_index, row_data in enumerate(upload_df.values, start=start_cell.row):
             for col_index, cell_value in enumerate(row_data, start=start_cell.column):
                 outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
+        
+        #Pivot page upload
+        outputs_sheet = workbook['Pivot Data']
+        # Clear A3:E10000
+        for row in outputs_sheet.iter_rows(min_row=1, max_row=10000, min_col=1, max_col=final_pivot.shape[1]):
+            for cell in row:
+                cell.value = None
+
+        # Insert upload_df
+        start_cell = outputs_sheet.cell(row=2, column=1)
+        for row_index, row_data in enumerate(final_pivot.values, start=start_cell.row):
+            for col_index, cell_value in enumerate(row_data, start=start_cell.column):
+                if isinstance(cell_value, pd.Timestamp):
+                    cell_value = cell_value.strftime('%Y-%m-%d')
+                outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
+
 
         workbook.save('$$.xlsx')
