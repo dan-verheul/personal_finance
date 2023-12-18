@@ -55,7 +55,7 @@ result_df = pd.concat([result_df, trouble_rows], ignore_index=True)
 result_df = result_df.sort_values(by=['Transaction Date','Store'], ascending=[False, True])
 
 #add * to stores we don't have info for
-E ['Store'].fillna(result_df['Description']+'*', inplace=True)
+result_df['Store'].fillna(result_df['Description']+'*', inplace=True)
 
 #if we have values that end with *, update google sheets
 unknown_stores = pd.DataFrame(columns=['Store','Category','Sub Category','Description'])

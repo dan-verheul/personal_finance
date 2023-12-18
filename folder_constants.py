@@ -21,6 +21,7 @@ while os.path.basename(current_directory) != 'GitHub':
     parent_directory = os.path.abspath(os.path.join(current_directory, os.pardir))
     os.chdir(parent_directory)
     current_directory = parent_directory
+    
 from personal_finance_private.config import *
 
 
@@ -32,6 +33,7 @@ client = gspread.authorize(creds)
 
 spreadsheet = client.open(workbook_name)
 
+#################### DATAFRAMES FROM CONFIG ####################
 #tiers df
 worksheet = spreadsheet.worksheet('Config')
 range_to_pull = 'A1:C'
@@ -59,12 +61,13 @@ budget_df = pd.DataFrame(data[1:], columns=data[0])
 budget_df['Budget'] = budget_df['Budget'].str.replace('$', '').astype(float).fillna(0)
 
 
-#################### GOOGLE SHEETS INFO ####################
+#################### GOOGLE SHEETS OUTPUT INFO ####################
 sheets_info_dict = {
     'credit_card': ['A3','A3:J'],
     'savings': ['M3','M3:P'],
     'checking': ['S3','S3:Y'],
-    'fidelity': ['AB3','AB3:AI']
+    'fidelity': ['AB3','AB3:AI'],
+    'bills': ['AL3','AL3:AN']
 }
 
 ##################### UPLOAD DATAFRAMES ####################
@@ -154,13 +157,40 @@ for old_name, new_name in columns_to_rename.items():
         fidelity_df.rename(columns={old_name: new_name}, inplace=True)
 fidelity_df['Date'] = pd.to_datetime(fidelity_df['Date'])
 
+#electric upload df
+section = 'ELECTRIC (SRP)'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+electric_df = pd.DataFrame(data[2:], columns=data[1])
+electric_df = electric_df.iloc[:, start_index:end_index]
+electric_df = remove_blank_rows(electric_df)
+electric_df = electric_df.rename(columns={'Bill date':'Date','New charges':'Electric'})
+electric_df = electric_df[['Date','Electric']]
+#assign a variable for the day number the bill is normally created. We will check current_date and make sure it's added for the month if it's missing
+electric_bill_day = 12
+
+#water upload df
+section = 'WATER'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+water_df = pd.DataFrame(data[2:], columns=data[1])
+water_df = water_df.iloc[:, start_index:end_index]
+water_df = remove_blank_rows(water_df)
+water_df = water_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
+#assign a variable for the day number the bill is normally created. We will check current_date and make sure it's added for the month if it's missing
+water_bill_day = 25
+
 
 #put into dictionary so we can reference as variables in scripts
 upload_df_dictionary = {
     'credit_card': credit_card_df,
     'savings': savings_df,
     'checking': checking_df,
-    'fidelity': fidelity_df
+    'fidelity': fidelity_df,
+    'electric': electric_df,
+    'water': water_df
 }
 
 
