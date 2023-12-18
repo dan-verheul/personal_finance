@@ -1,24 +1,20 @@
-#import setup
+import subprocess
 from folder_constants import *
 
-import subprocess
+methods = ['credit_card', 'savings', 'checking', 'fidelity']
 
-worksheet = spreadsheet.worksheet('Uploads')
+for method in methods:
+    if method != 'bills':
+        df = upload_df_dictionary[method]
+        if len(df) > 0:
+            script_path = primary_file_path + method + ".py"
+            with open(script_path, "r") as script_file:
+                script_code = script_file.read()
+                exec(script_code)
 
-#credit card run
-range_to_pull = 'A2:E'
-data = worksheet.get(range_to_pull)
-if len(data) > 0:
-    subprocess.run(["python", "credit_card.py"])
-
-#savings run
-range_to_pull = 'G2:K'
-data = worksheet.get(range_to_pull)
-if len(data) > 0:
-    subprocess.run(["python", "savings.py"])
-
-#checking run
-range_to_pull = 'M2:Q'
-data = worksheet.get(range_to_pull)
-if len(data) > 0:
-    subprocess.run(["python", "checking.py"])
+#bills run
+method = 'bills'
+script_path = primary_file_path + method + ".py"
+with open(script_path, "r") as script_file:
+    script_code = script_file.read()
+    exec(script_code)
