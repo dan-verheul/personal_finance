@@ -107,16 +107,22 @@ original_output_data, upload_df = format_and_combo(original_output_data, upload_
 upload_df = remove_rows_already_saved(original_output_data,upload_df)
 
 # now join the upload_df with the original_df to include original rows
-upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
+if 'combo' in original_output_data.columns:
+    original_output_data = original_output_data.drop('combo', axis=1)
+
+if len(original_output_data) > 0:
+    upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
+
 if 'combo' in upload_df.columns:
-            upload_df = upload_df.drop('combo', axis=1)
+    upload_df = upload_df.drop('combo', axis=1)
 
 #update google sheets and excel
 if len(upload_df) > 0:
     #format and sort
     upload_df['Date'] = pd.to_datetime(upload_df['Date'])
     upload_df = upload_df.sort_values(by=['Date']).reset_index(drop=True)
-    upload_df['Date'] = upload_df['Date'].astype(str)
+    # upload_df['Date'] = upload_df['Date'].astype(str)
+    upload_df['Date'] = upload_df['Date'].dt.strftime('%Y-%m-%d')
     upload_df['Amount'] = upload_df['Amount'].astype(float)
 
     # Update Google Sheets
@@ -128,26 +134,28 @@ if len(upload_df) > 0:
     worksheet.update_cells(range_to_clear)
     #upload
     data = upload_df.values.tolist()
-    worksheet.update(sheets_info_dict[method][0], data)
+    worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
+
+
 
     # Update excel
-    import openpyxl
-    if os.path.basename(current_directory) == 'GitHub':
-        move_directory = os.path.abspath(os.path.join(current_directory, 'personal_finance'))
-        os.chdir(move_directory)
+    # import openpyxl
+    # if os.path.basename(current_directory) == 'GitHub':
+    #     move_directory = os.path.abspath(os.path.join(current_directory, 'personal_finance'))
+    #     os.chdir(move_directory)
 
-    workbook = openpyxl.load_workbook('$$.xlsx')
-    outputs_sheet = workbook['Outputs']
+    # workbook = openpyxl.load_workbook('$$.xlsx')
+    # outputs_sheet = workbook['Outputs']
 
-    # Clear P3:V10000
-    for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=16, max_col=22):
-        for cell in row:
-            cell.value = None
+    # # Clear P3:V10000
+    # for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=16, max_col=22):
+    #     for cell in row:
+    #         cell.value = None
 
-    # Insert upload_df
-    start_cell = outputs_sheet.cell(row=3, column=16)
-    for row_index, row_data in enumerate(upload_df.values, start=start_cell.row):
-        for col_index, cell_value in enumerate(row_data, start=start_cell.column):
-            outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
+    # # Insert upload_df
+    # start_cell = outputs_sheet.cell(row=3, column=16)
+    # for row_index, row_data in enumerate(upload_df.values, start=start_cell.row):
+    #     for col_index, cell_value in enumerate(row_data, start=start_cell.column):
+    #         outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
 
-    workbook.save('$$.xlsx')
+    # workbook.save('$$.xlsx')

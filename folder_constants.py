@@ -63,10 +63,37 @@ budget_df['Budget'] = budget_df['Budget'].str.replace('$', '').astype(float).fil
 sheets_info_dict = {
     'credit_card': ['A3','A3:J'],
     'savings': ['M3','M3:P'],
-    'checking': ['S3','S3:Y']
+    'checking': ['S3','S3:Y'],
+    'fidelity': ['AB3','AB3:AI']
 }
 
 ##################### UPLOAD DATAFRAMES ####################
+#function to pull columns from section on Outputs sheet
+def extract_section_data(data, section):
+    item_number = 0
+    for i, item in enumerate(data[0]):
+        if item == section:
+            item_number = i
+            break
+    start_index = item_number
+
+    blank_count = 0
+    for item in data[0][item_number + 1:]:
+        if item == '':
+            blank_count += 1
+        elif item != '':
+            break
+    end_index = start_index + blank_count + 1
+
+    extracted_data = data[1][start_index:end_index]
+
+    if '' in extracted_data:
+        end_index = end_index - extracted_data.count('')
+        first_blank_index = extracted_data.index('')
+        extracted_data = extracted_data[:first_blank_index]
+
+    return start_index, end_index, extracted_data
+
 
 #function to remove blank rows
 def remove_blank_rows(df):
@@ -76,70 +103,114 @@ def remove_blank_rows(df):
     return df
 
 #credit card upload df
+section = 'NFCU CREDIT CARD'
 worksheet = spreadsheet.worksheet('Uploads')
 data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
 credit_card_df = pd.DataFrame(data[2:], columns=data[1])
-credit_card_df = credit_card_df.iloc[:, :5] #Keep only needed columns, update as needed
+credit_card_df = credit_card_df.iloc[:, start_index:end_index]
 credit_card_df = remove_blank_rows(credit_card_df)
 
+credit_card_df['Transaction Date'] = pd.to_datetime(credit_card_df['Transaction Date']) #comment out if date format breaks something
 credit_card_df = credit_card_df.rename(columns={'Debit':'Spent','Credit':'Refunded'})
 credit_card_df = credit_card_df.drop(columns='Posted Date')
 
 #savings upload df
+section = 'ALLY SAVINGS'
 worksheet = spreadsheet.worksheet('Uploads')
 data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
 savings_df = pd.DataFrame(data[2:], columns=data[1])
-savings_df = savings_df.iloc[:, 6:11] #Keep only needed columns, update as needed
+savings_df = savings_df.iloc[:, start_index:end_index]
 savings_df = remove_blank_rows(savings_df)
 savings_df = savings_df.drop(columns=['Time'])
 
 #checking upload df
+section = 'ALLY CHECKING'
 worksheet = spreadsheet.worksheet('Uploads')
 data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
 checking_df = pd.DataFrame(data[2:], columns=data[1])
-checking_df = checking_df.iloc[:, 12:] #Keep only needed columns, update as needed
+checking_df = checking_df.iloc[:, start_index:end_index]
 checking_df = remove_blank_rows(checking_df)
 checking_df = checking_df.drop(columns=['Time'])
+
+#fidelity upload df
+section = 'FIDELITY - ALL ACCOUNTS'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+fidelity_df = pd.DataFrame(data[2:], columns=data[1])
+fidelity_df = fidelity_df.iloc[:, start_index:end_index]
+fidelity_df = remove_blank_rows(fidelity_df)
+fidelity_df = fidelity_df.drop(columns=['Security Type','Security Description','Commission ($)','Fees ($)', 'Accrued Interest ($)','Settlement Date'])
+columns_to_rename = {
+    'Run Date': 'Date',
+    'Price ($)': 'Price',
+    'Amount ($)': 'Amount'
+}
+for old_name, new_name in columns_to_rename.items():
+    if old_name in fidelity_df.columns:
+        fidelity_df.rename(columns={old_name: new_name}, inplace=True)
+fidelity_df['Date'] = pd.to_datetime(fidelity_df['Date'])
+
 
 #put into dictionary so we can reference as variables in scripts
 upload_df_dictionary = {
     'credit_card': credit_card_df,
     'savings': savings_df,
-    'checking': checking_df
+    'checking': checking_df,
+    'fidelity': fidelity_df
 }
 
 
 ######### ORIGINAL OUTPUT DATAFRAMES #########
-
-#original output data for CREDIT CARD
+#original output data for NFCU CREDIT CARD
+section = 'NFCU CREDIT CARD'
 worksheet = spreadsheet.worksheet('Outputs')
 data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
 credit_card_original_output_data = pd.DataFrame(data[2:], columns=data[1])
-credit_card_original_output_data = credit_card_original_output_data.iloc[:, :9] #Keep only needed columns, update as needed
+credit_card_original_output_data = credit_card_original_output_data.iloc[:, start_index:end_index]
 credit_card_original_output_data['Transaction Date'] = pd.to_datetime(credit_card_original_output_data['Transaction Date'])
 credit_card_original_output_data = credit_card_original_output_data.dropna() #remove empty rows
 
-#original output data for SAVINGS
+#original output data for ALLY SAVINGS
+section = 'ALLY SAVINGS'
 worksheet = spreadsheet.worksheet('Outputs')
 data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
 savings_original_output_data = pd.DataFrame(data[2:], columns=data[1])
-savings_original_output_data = savings_original_output_data.iloc[:, 11:15] #Keep only needed columns, update as needed
+savings_original_output_data = savings_original_output_data.iloc[:, start_index:end_index]
 savings_original_output_data['Date'] = pd.to_datetime(savings_original_output_data['Date'])
 savings_original_output_data = savings_original_output_data.dropna() #remove empty rows
 
-#original output data for CHECKING
+#original output data for ALLY CHECKING
+section = 'ALLY CHECKING'
 worksheet = spreadsheet.worksheet('Outputs')
 data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
 checking_original_output_data = pd.DataFrame(data[2:], columns=data[1])
-checking_original_output_data = checking_original_output_data.iloc[:, 17:] #Keep the first 9 columns, update as needed
+checking_original_output_data = checking_original_output_data.iloc[:, start_index:end_index]
 checking_original_output_data['Date'] = pd.to_datetime(checking_original_output_data['Date'])
 checking_original_output_data = checking_original_output_data.dropna() #remove empty rows
+
+#original output data for FIDELITY
+section = 'FIDELITY'
+worksheet = spreadsheet.worksheet('Outputs')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+fidelity_original_output_data = pd.DataFrame(data[2:], columns=data[1])
+fidelity_original_output_data = fidelity_original_output_data.iloc[:, start_index:end_index]
+fidelity_original_output_data['Date'] = pd.to_datetime(fidelity_original_output_data['Date'])
+fidelity_original_output_data = fidelity_original_output_data.dropna() #remove empty rows
 
 #put into dictionary so we can reference as variables in scripts
 original_output_dataframes = {
     'credit_card': credit_card_original_output_data,
     'savings': savings_original_output_data,
-    'checking': checking_original_output_data
+    'checking': checking_original_output_data,
+    'fidelity': fidelity_original_output_data
 }
 
 

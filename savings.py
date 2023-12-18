@@ -56,26 +56,26 @@ if len(upload_df) > 0:
     worksheet.update_cells(range_to_clear)
     #upload
     data = upload_df.values.tolist()
-    worksheet.update(sheets_info_dict[method][0], data)
+    worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
 
 
     # Excel
-    import openpyxl
-    if os.path.basename(current_directory) == 'GitHub':
-        move_directory = os.path.abspath(os.path.join(current_directory, 'personal_finance'))
-        os.chdir(move_directory)
-    workbook = openpyxl.load_workbook('$$.xlsx')
-    outputs_sheet = workbook['Outputs']
+    # import openpyxl
+    # if os.path.basename(current_directory) == 'GitHub':
+    #     move_directory = os.path.abspath(os.path.join(current_directory, 'personal_finance'))
+    #     os.chdir(move_directory)
+    # workbook = openpyxl.load_workbook('$$.xlsx')
+    # outputs_sheet = workbook['Outputs']
 
-    # Clear K3:N10000
-    for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=11, max_col=14):
-        for cell in row:
-            cell.value = None
+    # # Clear K3:N10000
+    # for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=11, max_col=14):
+    #     for cell in row:
+    #         cell.value = None
 
-    # Insert upload_df
-    start_cell = outputs_sheet.cell(row=3, column=11)
-    for row_index, row_data in enumerate(upload_df.values, start=start_cell.row):
-        for col_index, cell_value in enumerate(row_data, start=start_cell.column):
-            outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
+    # # Insert upload_df
+    # start_cell = outputs_sheet.cell(row=3, column=11)
+    # for row_index, row_data in enumerate(upload_df.values, start=start_cell.row):
+    #     for col_index, cell_value in enumerate(row_data, start=start_cell.column):
+    #         outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
 
-    workbook.save('$$.xlsx')
+    # workbook.save('$$.xlsx')
