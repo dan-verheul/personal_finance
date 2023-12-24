@@ -62,12 +62,13 @@ budget_df['Budget'] = budget_df['Budget'].str.replace('$', '').astype(float).fil
 
 
 #################### GOOGLE SHEETS OUTPUT INFO ####################
+#output ranges, used for original output and new output
 sheets_info_dict = {
     'credit_card': ['A3','A3:J'],
     'savings': ['M3','M3:P'],
     'checking': ['S3','S3:Y'],
     'fidelity': ['AB3','AB3:AI'],
-    'bills': ['AL3','AL3:AN']
+    'bills': ['AM3','AL3:AO']
 }
 
 ##################### UPLOAD DATAFRAMES ####################
@@ -106,7 +107,8 @@ def remove_blank_rows(df):
     return df
 
 #credit card upload df
-section = 'NFCU CREDIT CARD'
+# section = 'NFCU CREDIT CARD'
+section = 'CHASE CREDIT CARD'
 worksheet = spreadsheet.worksheet('Uploads')
 data = worksheet.get_all_values()
 start_index, end_index, result_data = extract_section_data(data, section)
@@ -115,8 +117,11 @@ credit_card_df = credit_card_df.iloc[:, start_index:end_index]
 credit_card_df = remove_blank_rows(credit_card_df)
 
 credit_card_df['Transaction Date'] = pd.to_datetime(credit_card_df['Transaction Date']) #comment out if date format breaks something
-credit_card_df = credit_card_df.rename(columns={'Debit':'Spent','Credit':'Refunded'})
-credit_card_df = credit_card_df.drop(columns='Posted Date')
+credit_card_df = credit_card_df.rename(columns={'Amount':'Spent'})
+credit_card_df = credit_card_df.drop(columns=['Post Date','Category','Memo'])
+credit_card_df['Description'] = credit_card_df['Description'].apply(lambda x: x.title())
+credit_card_df['Type'] = credit_card_df['Type'].replace('Sale', 'Buy')
+credit_card_df['Spent'] = credit_card_df['Spent'].astype(float) * -1
 
 #savings upload df
 section = 'ALLY SAVINGS'
@@ -167,8 +172,7 @@ electric_df = electric_df.iloc[:, start_index:end_index]
 electric_df = remove_blank_rows(electric_df)
 electric_df = electric_df.rename(columns={'Bill date':'Date','New charges':'Electric'})
 electric_df = electric_df[['Date','Electric']]
-#assign a variable for the day number the bill is normally created. We will check current_date and make sure it's added for the month if it's missing
-electric_bill_day = 12
+
 
 #water upload df
 section = 'WATER'
@@ -179,8 +183,7 @@ water_df = pd.DataFrame(data[2:], columns=data[1])
 water_df = water_df.iloc[:, start_index:end_index]
 water_df = remove_blank_rows(water_df)
 water_df = water_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
-#assign a variable for the day number the bill is normally created. We will check current_date and make sure it's added for the month if it's missing
-water_bill_day = 25
+
 
 
 #put into dictionary so we can reference as variables in scripts
@@ -235,20 +238,73 @@ fidelity_original_output_data = fidelity_original_output_data.iloc[:, start_inde
 fidelity_original_output_data['Date'] = pd.to_datetime(fidelity_original_output_data['Date'])
 fidelity_original_output_data = fidelity_original_output_data.dropna() #remove empty rows
 
+#original output data for BILLS
+section = 'BILLS'
+worksheet = spreadsheet.worksheet('Outputs')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+bills_original_output_data = pd.DataFrame(data[2:], columns=data[1])
+bills_original_output_data = bills_original_output_data.iloc[:, start_index:end_index]
+bills_original_output_data['Date'] = pd.to_datetime(bills_original_output_data['Date'], format="%b '%y")
+bills_original_output_data = bills_original_output_data.dropna() #remove empty rows
+
+#original output data for IRA GRAPH
+section = 'IRA - GRAPH'
+worksheet = spreadsheet.worksheet('Outputs')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+ira_graph_output_data = pd.DataFrame(data[2:], columns=data[1])
+ira_graph_output_data = ira_graph_output_data.iloc[:, start_index:end_index]
+ira_graph_output_data['Date'] = pd.to_datetime(ira_graph_output_data['Date'])
+ira_graph_output_data = ira_graph_output_data.dropna() #remove empty rows
+
+#original output data for TAXABLE GRAPH
+section = 'TAXABLE - GRAPH'
+worksheet = spreadsheet.worksheet('Outputs')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+taxable_graph_output_data = pd.DataFrame(data[2:], columns=data[1])
+taxable_graph_output_data = taxable_graph_output_data.iloc[:, start_index:end_index]
+taxable_graph_output_data['Date'] = pd.to_datetime(taxable_graph_output_data['Date'])
+taxable_graph_output_data = taxable_graph_output_data.dropna() #remove empty rows
+
 #put into dictionary so we can reference as variables in scripts
 original_output_dataframes = {
     'credit_card': credit_card_original_output_data,
     'savings': savings_original_output_data,
     'checking': checking_original_output_data,
-    'fidelity': fidelity_original_output_data
+    'fidelity': fidelity_original_output_data,
+    'bills': bills_original_output_data,
+    'ira_graph': ira_graph_output_data,
+    'taxable_graph': taxable_graph_output_data
 }
 
 
-
 ######### Functions to remove the existing data from the uploads #########
+def clean_df(original_output_df, columns_to_sum=None):
+    for col in columns_to_sum:
+            original_output_df[col] = pd.to_numeric(original_output_df[col].replace('[\$,]', '', regex=True), errors='coerce')
+    test_df = original_output_df.copy()
+    test_df['Amount'] = test_df[columns_to_sum].sum(axis=1)
+    test_df.drop(columns=columns_to_sum, inplace=True) 
+    return test_df
+    
+def remove_data_we_already_have(original_output_df, upload_df):
+    merged_df = upload_df.merge(original_output_df[['Date', 'Amount']], how='left', on='Date')
+    # Rename the 'Amount' column from original_output_df to 'Original Amount'
+    for column in merged_df.columns:
+        if column.endswith("_x"):
+            merged_df.rename(columns={column: "New " + column[:-2]}, inplace=True)
+        elif column.endswith("_y"):
+            merged_df.rename(columns={column: "Original " + column[:-2]}, inplace=True)
+    new_upload_df = merged_df[merged_df['New Amount'] != merged_df['Original Amount']]
+    return new_upload_df
+
 def format_and_combo(original_output_df,upload_df):
     # Clean Amount column if needed
-    original_amount_column = 'Amount' if 'Amount' in original_output_df.columns else 'Spent'
+    original_amount_column = 'Amount' if 'Amount' in original_output_df.columns else (
+        'Spent' if 'Spent' in original_output_df.columns else None
+    )
     upload_amount_column = 'Amount' if 'Amount' in upload_df.columns else 'Spent'
     original_date_column = 'Date' if 'Date' in original_output_df.columns else 'Transaction Date'
     upload_date_column = 'Date' if 'Date' in upload_df.columns else 'Transaction Date'
@@ -283,3 +339,163 @@ def remove_rows_already_saved(original_output_df, upload_df):
     upload_df = upload_df.drop(columns='combo').reset_index(drop=True)
     
     return upload_df
+
+
+### bill dates
+water_bill_date = 25
+electric_bill_date = 12
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+##########################################################################
+##########################################################################
+#import setup
+from folder_constants import *
+
+#pick the needed df's from folder_constants.py
+method = 'savings'
+original_output_data = original_output_dataframes[method]
+upload_df = upload_df_dictionary[method]
+
+def output_col_list(method):
+    if method == 'credit_card':
+        required_columns = ['']
+    elif method == 'savings' or method == 'checking' or method == 'fidelity':
+        required_columns = ['Date','Amount']
+    # elif method == 'fidelity':
+    #     required_columns = ['Date','Amount']
+    #     ira_graph_required_columns = ['Date','Holder','Account','Month','Year']
+    #     taxable_graph_required_columns = ['Date','Holder','Account','Monthly Total','YTD']
+    elif method == 'bills':
+        required_columns = ['Date','Electric','Water']
+    return required_columns
+    # if method == 'fidelity':
+    #     return required_columns, ira_graph_required_columns, taxable_graph_required_columns
+    # else:
+    #     return required_columns
+
+
+def df_column_alignment(required_columns,original_output_data,upload_df):
+    #some columns are called "Transaction Date" or "Run Date" etc. this renames those to "Date"
+    for column in upload_df.columns:
+        if column.lower() != 'date' and 'date' in column.lower():
+            upload_df.rename(columns={column: 'Date'}, inplace=True)
+    #similar to above, change columns called Debit, Spent, etc. to "Amount"
+    for column in upload_df.columns:
+        if column.lower() == 'debit' or column.lower() == 'amount ($)':
+            upload_df.rename(columns={column: 'Amount'}, inplace=True)
+    #make copy of the dataframes with only needed columns
+    original_output_data_aligned = original_output_data[required_columns].copy()
+    upload_df_aligned = upload_df[required_columns].copy()
+    return original_output_data_aligned, upload_df_aligned
+
+required_columns = output_col_list(method)
+original_output_data_df_aligned, upload_df_aligned = df_column_alignment(required_columns, original_output_data, upload_df)
+
+#creates the combo column between the two dataframes
+def create_combo(original_output_data, upload_df):
+    #convert to datetime datatype
+    original_output_data['Date'] = pd.to_datetime(original_output_data['Date'])
+    upload_df['Date'] = pd.to_datetime(upload_df['Date'])
+
+    #this helps remove the time component (00:00:00) when creating combo
+    original_output_data['Date'] = original_output_data['Date'].dt.strftime('%Y-%m-%d')
+    upload_df['Date'] = upload_df['Date'].dt.strftime('%Y-%m-%d')
+
+    #create combo column, add '; ' between each concatenation
+    original_output_data['combo'] = original_output_data.apply(lambda row: '; '.join(map(str, row)), axis=1)
+    upload_df['combo'] = upload_df.apply(lambda row: '; '.join(map(str, row)), axis=1)
+create_combo(original_output_data, upload_df)
+
+#remove data from upload_df that is already found in original_output_df
+def remove_data_we_already_have(original_output_data, upload_df):
+    merged_df = upload_df.merge(original_output_data, how='left', on='combo')
+    # Rename the 'Amount' column from original_output_data to 'Original Amount'
+    for column in merged_df.columns:
+        if column.endswith("_x"):
+            merged_df.rename(columns={column: "New " + column[:-2]}, inplace=True)
+        elif column.endswith("_y"):
+            merged_df.rename(columns={column: "Original " + column[:-2]}, inplace=True)
+    new_upload_df = merged_df[merged_df['New Amount'] != merged_df['Original Amount']]
+    return new_upload_df
+
+
+
+######### Functions to remove the existing data from the uploads #########
+def clean_df(original_output_df, columns_to_sum=None):
+    for col in columns_to_sum:
+            original_output_df[col] = pd.to_numeric(original_output_df[col].replace('[\$,]', '', regex=True), errors='coerce')
+    test_df = original_output_df.copy()
+    test_df['Amount'] = test_df[columns_to_sum].sum(axis=1)
+    test_df.drop(columns=columns_to_sum, inplace=True) 
+    return test_df
+    
+def remove_data_we_already_have(original_output_df, upload_df):
+    merged_df = upload_df.merge(original_output_df[['Date', 'Amount']], how='left', on='Date')
+    # Rename the 'Amount' column from original_output_df to 'Original Amount'
+    for column in merged_df.columns:
+        if column.endswith("_x"):
+            merged_df.rename(columns={column: "New " + column[:-2]}, inplace=True)
+        elif column.endswith("_y"):
+            merged_df.rename(columns={column: "Original " + column[:-2]}, inplace=True)
+    new_upload_df = merged_df[merged_df['New Amount'] != merged_df['Original Amount']]
+    return new_upload_df
+
+def format_and_combo(original_output_df,upload_df):
+    # Clean Amount column if needed
+    original_amount_column = 'Amount' if 'Amount' in original_output_df.columns else (
+        'Spent' if 'Spent' in original_output_df.columns else None
+    )
+    upload_amount_column = 'Amount' if 'Amount' in upload_df.columns else 'Spent'
+    original_date_column = 'Date' if 'Date' in original_output_df.columns else 'Transaction Date'
+    upload_date_column = 'Date' if 'Date' in upload_df.columns else 'Transaction Date'
+
+    original_output_df[original_amount_column] = original_output_df[original_amount_column].replace('[\$,]', '', regex=True)
+    original_output_df[original_amount_column] = pd.to_numeric(original_output_df[original_amount_column]).map('{:.2f}'.format).astype(str)
+    upload_df[upload_amount_column] = pd.to_numeric(upload_df[upload_amount_column]).map('{:.2f}'.format).astype(str)
+
+    # Reformat Date to string
+    original_output_df[original_date_column] = original_output_df[original_date_column].astype(str)
+    upload_df[original_date_column] = upload_df[original_date_column].astype(str)
+
+    # Create combo column
+    if 'Store' in original_output_df.columns:
+        original_output_df['combo'] = original_output_df[original_date_column] + original_output_df['Store'] + original_output_df[original_amount_column]
+        upload_df['combo'] = upload_df[upload_date_column] + upload_df['Store'] + upload_df[upload_amount_column]
+    else:
+        original_output_df['combo'] = original_output_df[original_date_column] + original_output_df[original_amount_column]
+        upload_df['combo'] = upload_df[upload_date_column] + upload_df[upload_amount_column]
+    upload_df['combo'] = upload_df['combo'].astype(str).str.strip()
+
+    return original_output_df,upload_df
+
+# remove rows already stored in google sheets
+def remove_rows_already_saved(original_output_df, upload_df):
+    
+    # Remove rows from upload_df if they are in original_output_df, we don't want to upload duplicates
+    upload_df = upload_df[~upload_df['combo'].isin(original_output_df['combo'])]
+
+    # Drop combo columns
+    original_output_df = original_output_df.drop(columns='combo')
+    upload_df = upload_df.drop(columns='combo').reset_index(drop=True)
+    
+    return upload_df
+
+
+### bill dates
+water_bill_date = 25
+electric_bill_date = 12

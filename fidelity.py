@@ -168,16 +168,16 @@ if len(upload_df) > 0:
 
     #roth upload
     roth_df['Month'] = roth_df['Month'].astype(str)
-    worksheet = spreadsheet.worksheet('Graph Data')
-    range_to_clear = 'H2:N'+ str(len(roth_df))
+    worksheet = spreadsheet.worksheet('Outputs')
+    range_to_clear = 'AQ3:AW'+ str(len(roth_df))
     worksheet.batch_clear([range_to_clear])
     data = roth_df.values.tolist()
-    worksheet.update('H2', data, value_input_option='USER_ENTERED')
+    worksheet.update('AQ3', data, value_input_option='USER_ENTERED')
 
     #taxable upload
     taxable_df['Month'] = taxable_df['Month'].astype(str)
-    worksheet = spreadsheet.worksheet('Graph Data')
-    range_to_clear = 'P2:U'+ str(len(taxable_df))
+    worksheet = spreadsheet.worksheet('Outputs')
+    range_to_clear = 'AZ3:BE'+ str(len(taxable_df))
     worksheet.batch_clear([range_to_clear])
     data = taxable_df.values.tolist()
-    worksheet.update('P2', data, value_input_option='USER_ENTERED')
+    worksheet.update('AZ3', data, value_input_option='USER_ENTERED')
