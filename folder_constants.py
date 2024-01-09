@@ -185,6 +185,16 @@ water_df = remove_blank_rows(water_df)
 water_df = water_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
 
 
+#water upload df
+section = 'CHASE CREDIT CARD'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+chase_df = pd.DataFrame(data[2:], columns=data[1])
+chase_df = chase_df.iloc[:, start_index:end_index]
+chase_df = remove_blank_rows(chase_df)
+chase_df = chase_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
+
 
 #put into dictionary so we can reference as variables in scripts
 upload_df_dictionary = {

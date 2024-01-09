@@ -40,6 +40,7 @@ upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
 if 'combo' in upload_df.columns:
             upload_df = upload_df.drop('combo', axis=1)
 
+
 #append leftover rows to google sheets
 if len(upload_df) > 0:
     #format and sort
@@ -59,23 +60,12 @@ if len(upload_df) > 0:
     worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
 
 
-    # Excel
-    # import openpyxl
-    # if os.path.basename(current_directory) == 'GitHub':
-    #     move_directory = os.path.abspath(os.path.join(current_directory, 'personal_finance'))
-    #     os.chdir(move_directory)
-    # workbook = openpyxl.load_workbook('$$.xlsx')
-    # outputs_sheet = workbook['Outputs']
-
-    # # Clear K3:N10000
-    # for row in outputs_sheet.iter_rows(min_row=3, max_row=10000, min_col=11, max_col=14):
-    #     for cell in row:
-    #         cell.value = None
-
-    # # Insert upload_df
-    # start_cell = outputs_sheet.cell(row=3, column=11)
-    # for row_index, row_data in enumerate(upload_df.values, start=start_cell.row):
-    #     for col_index, cell_value in enumerate(row_data, start=start_cell.column):
-    #         outputs_sheet.cell(row=row_index, column=col_index, value=cell_value)
-
-    # workbook.save('$$.xlsx')
+    # summary df
+    savings_month_summary = upload_df.copy()
+    savings_month_summary = savings_month_summary[['Date','Amount','Type']]
+    savings_month_summary['Date'] = pd.to_datetime(savings_month_summary['Date'])
+    savings_month_summary['Month'] = savings_month_summary['Date'].dt.to_period('M')
+    savings_month_summary['Month'] = savings_month_summary['Month'].astype(str)
+    savings_month_summary['Amount'] = savings_month_summary['Amount'].astype(float)
+    savings_month_summary = savings_month_summary[['Month','Amount','Type']]
+    savings_month_summary = savings_month_summary.groupby(['Month','Type'])['Amount'].sum().reset_index()
