@@ -1,8 +1,11 @@
-import subprocess
+# import subprocess
 from folder_constants import *
 from datetime import datetime
 
 # check to see if you need to add any bills to Google sheets
+electric_bill_date = important_dates_df.loc[important_dates_df['Category'] == 'Electric', 'Date'].values[0]
+water_bill_date = important_dates_df.loc[important_dates_df['Category'] == 'Water', 'Date'].values[0]
+
 current_date_number = datetime.now().day
 current_month_number = datetime.now().month
 if current_date_number > electric_bill_date:
@@ -19,7 +22,7 @@ if current_date_number > water_bill_date:
         ctypes.windll.user32.MessageBoxW(0, "Add this month's water bill to Google Sheets", "Add Water Bill", 1)
 
 #run all the files
-methods = ['credit_card', 'savings', 'checking', 'fidelity']
+methods = ['credit_card','savings', 'checking', 'fidelity']
 
 for method in methods:
     if method != 'bills':

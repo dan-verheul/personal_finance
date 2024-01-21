@@ -1,12 +1,15 @@
+############################################## Setup ###############################################
 #import setup
 from folder_constants import *
 
 #pick the needed df's from folder_constants.py
 method = 'credit_card'
+credit_card = 'Chase'
 original_output_data = original_output_dataframes[method]
 upload_df = upload_df_dictionary[method]
 original_upload_df = upload_df.copy()
 
+#create lookup_df
 worksheet = spreadsheet.worksheet('Lookup')
 data = worksheet.get_all_values()
 columns_a_to_c = [row[:4] for row in data]
@@ -14,278 +17,219 @@ lookup_df = pd.DataFrame(columns_a_to_c, columns=['Store', 'Category', 'Sub Cate
 lookup_df = lookup_df.drop(0)
 lookup_df = lookup_df.sort_values(by=['Category','Store'])
 lookup_df = lookup_df.reset_index(drop=True)
-lookup_df = lookup_df.drop(0)
-duplicates = lookup_df.duplicated(keep='first')
-lookup_df = lookup_df[~duplicates]
-lookup_df = lookup_df.reset_index(drop=True)
-lookup_df['Occurrences'] = lookup_df.groupby('Store')['Store'].transform('count')
 
-#common abbreviations
-upload_df['Description'] = upload_df['Description'].apply(lambda x: x.lower() if isinstance(x, str) else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Amazon' if 'amzn' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Amazon' if 'amazon' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'El Guero Tacos in Tucson' if 'el guero' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Tacos Tucson (Street- Taco and Beer Co)' if 'tacos tucson az' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'The Monica - Tucson' if 'the monica' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Instacart' if 'insta wwwbjscom' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'NFCU Interest' if 'cash adva nces' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'Pho Chandler' if 'pho chandler chandler az' in x.lower() else x)
-upload_df['Description'] = upload_df['Description'].apply(lambda x: 'NFCU Payment' if 'ach payment received' in x.lower() else x)
 
+
+############################### Clean up description column one-offs ###############################
+#get simplified store in upload_df
+upload_df.loc[upload_df['Description'].str.lower().str.contains('amazon|amzn mkt', na=False), 'Description'] = 'Amazon' #anything that has lower(string)='amazon' just change it to 'amazon'
+upload_df['Description'] = upload_df['Description'].str.replace('.com', '', case=False) #remove any .com's
+upload_df.loc[upload_df['Description'].str.lower().str.contains('wholefds', na=False), 'Description'] = 'Whole Foods'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('american air', na=False), 'Description'] = 'American Air'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('frontier', na=False), 'Description'] = 'Frontier'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('thtribeclothing', na=False), 'Description'] = '12th Tribe'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('rwlv gatsbys', na=False), 'Description'] = 'Gatsbys Cocktail Lounge'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('d n wolfgang puck las', na=False), 'Description'] = 'Wolfgang Puck Bar'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('clubpilates', na=False), 'Description'] = 'Club Pilates'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('aim diamond h', na=False), 'Description'] = 'Diamond Head'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('dusk fest', na=False), 'Description'] = 'Dusk Music Festival'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('payment thank you-mobile', na=False), 'Description'] = 'Credit Card Paid'
+
+frys_pattern = r'frys|fry\'s' #change strings with "Fry's" or "Frys" to simply "Frys"
+upload_df.loc[upload_df['Description'].str.lower().str.contains('frys|fry\'s', na=False), 'Description'] = 'Frys'
+
+#remove payment system abbreviations ("Sq *"= Square, "Tst*" = Toast) also do same thing for "Gilbert", "-Gilbert", "Gilber"
+upload_df['Description'] = upload_df['Description'].str.replace(r'Tst\*|Sq \*|Til\*|- Gilbert|- Gilber', '', regex=True)
+
+
+
+############################## Get Store, Category, Sub Category, etc ##############################
 #get simplified store
+upload_df['Description'] = upload_df['Description'].str.strip()
 def partial_string_match(s1, s2):
-    return s1.lower() in s2.lower()
-result_df = upload_df.copy()
-for column in lookup_df.columns:
-    result_df[column] = upload_df['Description'].apply(lambda x: lookup_df['Store'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else None)
-result_df.drop(columns=['Category','Sub Category','Occurrences'],inplace=True) #Bring in all cols, just drop these since they're all the same
-result_df['Store'].fillna(upload_df['Description']+'*', inplace=True)
+    # return s1.lower() in s2.lower()
+    return (s1.lower() in s2.lower()) or (s2.lower() in s1.lower())
 
-#now, for only the descriptions that end with *, do vlookup to lookupdf description column
-trouble_rows = result_df[result_df['Store'].str.endswith('*')]
-result_df = result_df[~result_df['Store'].str.endswith('*')]
-#remove * and left join to get store info
-trouble_rows['Store'] = trouble_rows['Store'].str.rstrip('*')
-trouble_rows = pd.merge(trouble_rows, lookup_df, left_on='Store', right_on='Description', how='left')
-trouble_rows = trouble_rows[['Transaction Date', 'Store_x', 'Spent', 'Refunded', 'Store_y']]
-trouble_rows = trouble_rows.rename(columns={'Store_x': 'Description', 'Store_y': 'Store'})
+#pull in Store, Category, Sub Category, and Notes columns
+upload_df['Store'] = upload_df['Description'].apply(
+    lambda x: lookup_df['Store'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else '*****' + x)
+upload_df['Category'] = upload_df['Description'].apply(
+    lambda x: lookup_df['Category'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else '*****' + x)
+upload_df['Sub Category'] = upload_df['Description'].apply(
+    lambda x: lookup_df['Sub Category'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else '*****' + x)
+upload_df['Notes'] = upload_df['Description'].apply(
+    lambda x: lookup_df['Description'][lookup_df['Store'].apply(lambda y: partial_string_match(y, x))].iloc[0] if any(lookup_df['Store'].apply(lambda y: partial_string_match(y, x))) else '*****' + x)
 
-#combine df's back together
-result_df = pd.concat([result_df, trouble_rows], ignore_index=True)
-result_df = result_df.sort_values(by=['Transaction Date','Store'], ascending=[False, True])
+#clean up "Paid Credit Card" values. Remove asterisks from Store column, remove the value found in the other columns
+upload_df['Store'] = upload_df['Store'].str.replace('*****Credit Card Paid', 'Credit Card Paid')
+columns_to_check = ['Category', 'Sub Category', 'Notes']
+for column in columns_to_check:
+    upload_df[column] = upload_df[column].apply(lambda x: '' if x == '*****Credit Card Paid' else x)
 
-#add * to stores we don't have info for
-result_df['Store'].fillna(result_df['Description']+'*', inplace=True)
 
-#if we have values that end with *, update google sheets
-unknown_stores = pd.DataFrame(columns=['Store','Category','Sub Category','Description'])
-filtered_rows = result_df[result_df['Store'].str.endswith('*')]
-if not filtered_rows.empty:
-    unknown_stores['Description'] = filtered_rows['Store'].str.rstrip('*')
-unknown_stores['Store'] = unknown_stores['Store'].fillna('')
-unknown_stores['Category'] = unknown_stores['Category'].fillna('')
-unknown_stores['Sub Category'] = unknown_stores['Sub Category'].fillna('')
 
-if len(unknown_stores) > 0:
-    # add new rows to lookup sheet and quit script
+######################## Change Groceries to Gas if Between Certain Amounts ########################
+mask = (upload_df['Store'] == 'Frys') & (upload_df['Spent'].between(45, 65)) #this assumes any purchase from Frys between these two numbers is for gas
+upload_df.loc[mask, 'Category'] = 'Gas' #if top checks out then change to this
+upload_df.loc[mask, 'Sub Category'] = None 
+
+
+
+######################################### Add Travel Column  #######################################
+worksheet = spreadsheet.worksheet('Travel Dates')
+data = worksheet.get_all_values()
+travel_df = pd.DataFrame(data[1:], columns=data[0])
+new_rows = []
+
+# Iterate through each row in the travel_df
+for index, row in travel_df.iterrows():
+    start_date = pd.to_datetime(row['Start Date'], format='%a, %m/%d/%y')
+    end_date = pd.to_datetime(row['End Date'], format='%a, %m/%d/%y')
+    notes = row['Notes (required)']
+    date_range = pd.date_range(start=start_date, end=end_date)
+    for date in date_range:
+        new_rows.append({'Date': date.strftime('%a, %m/%d/%y'), 'Notes (required)': notes})
+travel_df = pd.DataFrame(new_rows)
+travel_df['Date'] = pd.to_datetime(travel_df['Date'], format='%a, %m/%d/%y')
+travel_df = travel_df.sort_values(by=['Date']).reset_index(drop=True)
+
+#list of categories that can fall under travel
+travel_categories = ['Drinks','Event','Food','Gas','Self Care','Splurging','Travel','Hotel']
+
+# add to this list where you know categories and/or subcategories should not be included in travel expenses
+not_travel_subcategories = ['Home Improvement','Etsy','Pet','Science Center','Games','Car Insurance']
+
+#look at main_df, if category is in list and transaction date is in travel_df, then change to Travel category and move Category to Sub Category
+upload_df = upload_df.merge(travel_df, left_on='Transaction Date', right_on='Date', how='left')
+upload_df = upload_df.drop(columns=['Date'])
+upload_df = upload_df.rename(columns={'Notes (required)':'Travel'})
+upload_df['Travel'].fillna('', inplace=True)
+
+#remove the value from Travel column if the category on that row is not in travel_categories list
+condition = ~upload_df['Category'].isin(travel_categories) | (upload_df['Store'] == 'F45') # we include F45 here because it falls under Self Care for Fitness but isn't part of travel, just a one off
+upload_df.loc[condition, 'Travel'] = ''
+
+#if Travel Day = 'Yes' and Category in travel_categories, then make adjustments
+condition = upload_df['Travel'] != ''
+sub_category_present = upload_df['Sub Category'] != ''
+not_in_not_travel_subcategories = upload_df['Sub Category'].isin(not_travel_subcategories)
+
+upload_df.loc[condition & sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = upload_df['Category'] + ' - ' + upload_df['Sub Category']
+upload_df.loc[condition & ~sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = upload_df['Category']
+upload_df.loc[condition & ~not_in_not_travel_subcategories, 'Category'] = 'Travel'
+
+#if non travel purchase made during travel, then remove value under Travel column
+mask = (upload_df['Travel'].notnull()) & (upload_df['Category'] != 'Travel')
+upload_df.loc[mask, 'Travel'] = ''
+
+
+
+######################################## Clean New Upload DF #######################################
+upload_df = upload_df[['Transaction Date','Store','Spent','Category','Sub Category','Notes','Travel']]
+
+#stores that need to be added (ones that have "*****") have that same value across all columns, remove that value from the other columns
+mask_store = upload_df['Store'].str.startswith('*****')
+if mask_store.any():
+    upload_df.loc[mask_store, 'Category'] = upload_df.loc[mask_store, 'Category'].apply(lambda x: '' if x.startswith('*****') else x)
+    upload_df.loc[mask_store, 'Sub Category'] = upload_df.loc[mask_store, 'Sub Category'].apply(lambda x: '' if x.startswith('*****') else x)
+    upload_df.loc[mask_store, 'Notes'] = upload_df.loc[mask_store, 'Notes'].apply(lambda x: '' if x.startswith('*****') else x)
+
+#add refunded column
+upload_df['Refunded'] = ''
+negative_spent_mask = upload_df['Spent'] < 0
+upload_df.loc[negative_spent_mask, 'Refunded'] = upload_df.loc[negative_spent_mask, 'Spent'].abs()
+upload_df.loc[negative_spent_mask, 'Spent'] = ''
+upload_df = upload_df[['Transaction Date','Store','Spent','Refunded','Category','Sub Category','Notes','Travel']]
+
+
+
+############################ Create Cycle Totals and Rolling 12 Columns ############################
+upload_df['Cycle'] = pd.to_datetime(upload_df['Transaction Date']).dt.to_period('M').astype(str)
+
+# look at cycle_date_df, filter out all rows that don't match the variable above, then add that value to upload_df
+filtered_cycle_date_df = important_dates_df[important_dates_df['Category'] == credit_card]
+filtered_cycle_date = important_dates_df.loc[important_dates_df['Category'] == credit_card, 'Date'].values
+upload_df['Cycle Date'] = filtered_cycle_date[0] if filtered_cycle_date else 0
+
+#if the day # in transaction date > value in cycle date, then add 1 month to Cycle, otherwise keep it the same
+upload_df['Cycle'] = upload_df.apply(lambda row: (row['Transaction Date'] + pd.DateOffset(months=1)).strftime('%Y-%m') if row['Transaction Date'].day > row['Cycle Date'] else row['Cycle'], axis=1)
+upload_df = upload_df.drop('Cycle Date', axis=1)
+
+#Rolling 12 column helps with pivot table formatting
+upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
+upload_df['MonthTrunc'] = upload_df['Transaction Date'].dt.to_period('M')
+max_month = upload_df['MonthTrunc'].max()
+upload_df['Rolling12'] = ['Yes' if (max_month - x).n <= 12 else 'No' for x in upload_df['MonthTrunc']]
+upload_df = upload_df.drop(columns='MonthTrunc')
+
+
+
+############################### Compare to What's Already in Sheets ################################
+# format, add combo col
+original_output_data, upload_df = format_and_combo(original_output_data, upload_df)
+
+# remove rows already stored in output sheet so they're not uploaded twice
+upload_df = remove_rows_already_saved(original_output_data,upload_df)
+
+
+
+
+##################### Fix Amazon/Department Store Categories and Sub Categories ####################
+#create a list of stores to include as Amazon/Department Stores
+multi_store_list = ['Amazon', 'Costco', 'Target']
+
+multi_store_df = upload_df[upload_df['Store'].isin(multi_store_list)].reset_index(drop=True)
+upload_df = upload_df[~upload_df['Store'].isin(multi_store_list)].reset_index(drop=True)
+
+multi_store_df['Sub Category'] = multi_store_df['Sub Category'].replace('Amazon','')
+
+# Create a loop that requires user to assign number value for the Sub Category
+distinct_categories = lookup_df['Category'][lookup_df['Category'] != ''][lookup_df['Category']!='Shopping'].drop_duplicates().tolist()
+for index, row in multi_store_df.iterrows():
+    date = pd.to_datetime(row['Transaction Date']).strftime('%m/%d/%y')
+    # description = row['Description']
+    spent = row['Spent']
+    store = row['Store']
+    distinct_categories = lookup_df['Category'][lookup_df['Category'] != ''][lookup_df['Category']!='Shopping'].drop_duplicates().tolist()
+
+    print(f"\nOn {date}, there was a ${float(spent):.2f} charge on {store}. What kind of purchase was this?")
+    for i, category in enumerate(distinct_categories):
+        print(f"{i+1}. {category}")
+    selected_index = input("Enter the number corresponding \nto your choice: ")
+    selected_category = distinct_categories[int(selected_index) - 1]
+    multi_store_df.at[index, 'Sub Category'] = selected_category
+
+# Create a loop that requires user to input a Note for each Amazon transaction
+multi_store_df['Notes'] = ''
+for index, row in multi_store_df.iterrows():
+    date = pd.to_datetime(row['Transaction Date']).strftime('%m/%d/%y')
+    # description = row['Description']
+    spent = row['Spent']
+    store = row['Store']
+    
+    user_input = input(f"On {date}, there was a ${float(spent):.2f} charge on {store}. What was this? If no note needed, just press Enter with no text")
+    multi_store_df.at[index,'Notes'] = user_input
+
+#combine the two dataframes back together and order
+upload_df = pd.concat([multi_store_df, upload_df], ignore_index=True)
+
+
+
+######################################### Upload to Sheets #########################################
+if len(upload_df) > 0:
+    upload_df = pd.concat([upload_df,original_output_data],ignore_index=True) #combine new rows with what's in google sheets already
+    upload_df['Spent'] = upload_df['Spent'].replace('nan', '')
+
+    #format and sort
+    upload_df = upload_df.sort_values(by=['Transaction Date','Travel']).reset_index(drop=True)
+    upload_df['Transaction Date'] = upload_df['Transaction Date'].astype(str)
+    upload_df['Cycle'] = upload_df['Cycle'].astype(str)
+
+    if 'combo' in upload_df.columns:
+        upload_df = upload_df.drop('combo', axis=1)
+
     #upload
-    worksheet = spreadsheet.worksheet('Lookup')
-    unknown_stores['Store'] = unknown_stores['Store'].astype(str)
-    unknown_stores['Category'] = unknown_stores['Category'].astype(str)
-    unknown_stores['Sub Category'] = unknown_stores['Sub Category'].astype(str)
-    data = unknown_stores.values.tolist()
-    worksheet.append_rows(values=data, table_range='A:A')
-    #pop up windows
-    import tkinter as tk
-    from tkinter import messagebox
-    root = tk.Tk()
-    root.withdraw()
-    popup = tk.Toplevel(root)
-    popup.title("Add to Lookup Sheet")
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    popup_width = 600 
-    popup_height = 75
-    x_position = (screen_width - popup_width) // 2
-    y_position = (screen_height - popup_height) // 2
-    popup.geometry(f"{popup_width}x{popup_height}+{x_position}+{y_position}")
-    message = "Please add the missing entries to the lookup sheet and then rerun the code."
-    label = tk.Label(popup, text=message, padx=10, pady=10)
-    label.pack()
-    button = tk.Button(popup, text="Sweetness", command=popup.destroy)
-    button.pack()
-    popup.lift()
-    popup.wait_window() 
-
-else:
-    #check for rows that didn't pull value
-    nonstore_df = result_df[result_df['Store'] == '']
-    result_df = result_df[result_df['Store'] != '']
-    nonstore_df.reset_index(drop=True, inplace=True)
-    result_df.reset_index(drop=True, inplace=True)
-
-    #left join to get Category and Sub Category
-    if len(result_df) > 0:
-        result_df = result_df.drop(columns='Description')
-        result_df = pd.merge(result_df, lookup_df, on='Store', how='left')
-        result_df['Category'].fillna("", inplace=True)
-        result_df['Sub Category'].fillna("", inplace=True)
-        duplicates = result_df.duplicated(keep='first')
-        result_df = result_df[~duplicates]
-        result_df = result_df.reset_index(drop=True)
-        result_df['Transaction Date'] = pd.to_datetime(result_df['Transaction Date'])
-        result_df['Spent'] = pd.to_numeric(result_df['Spent'], errors='coerce')
-        result_df['Occurrences'] = pd.to_numeric(result_df['Occurrences'], errors='coerce')
-
-        #create a df to filter out duplicate rows (ex: Frys gets duplicated b/c it's Food category and Gas)
-        dups_df = result_df[(result_df['Occurrences'] != '') & (result_df['Occurrences'] != 1.0)]
-        condition = ((dups_df['Category'] == 'Gas') & (dups_df['Spent'].between(40, 65))) | \
-                    ((dups_df['Category'] == 'Food') & ((dups_df['Spent'] < 40) | (dups_df['Spent'] > 65)))
-        dups_fixed_df = dups_df[condition]
-
-        #delete rows 
-        result_df['Occurrences'].fillna("", inplace=True)
-        result_df = result_df[(result_df['Occurrences'] == '') | (result_df['Occurrences'] == 1.0)]
-        result_df = pd.concat([result_df, dups_fixed_df], ignore_index=True)
-        result_df = result_df.sort_values(by=['Transaction Date','Store'], ascending=[False, True])
-        result_df = result_df.reset_index(drop = True)
-        result_df = result_df.drop(columns='Occurrences')
-
-        # format, add combo col
-        original_output_data, upload_df = format_and_combo(original_output_data, result_df)
-
-        # remove rows already stored in output sheet so they're not uploaded twice
-        upload_df = remove_rows_already_saved(original_output_data,upload_df)
-
-        #fix amazon categories, by default they are shopping but put these in another df and create a loop that updates each category value, then add back to df
-        amazon_df = upload_df[upload_df['Store'] == 'Amazon'].reset_index(drop=True)
-        upload_df = upload_df[upload_df['Store'] != 'Amazon'].reset_index(drop=True)
-
-        amazon_df['Sub Category'] = amazon_df['Sub Category'].replace('Amazon','')
-
-        distinct_categories = lookup_df['Category'][lookup_df['Category'] != ''][lookup_df['Category']!='Shopping'].drop_duplicates().tolist()
-
-        for index, row in amazon_df.iterrows():
-            date = pd.to_datetime(row['Transaction Date']).strftime('%m/%d/%y')
-            description = row['Description']
-            spent = row['Spent']
-            store = row['Store']
-            distinct_categories = lookup_df['Category'][lookup_df['Category'] != ''][lookup_df['Category']!='Shopping'].drop_duplicates().tolist()
-
-            print(f"\nOn {date}, there was a ${float(spent):.2f} charge on {store}. What kind of purchase was this?")
-            for i, category in enumerate(distinct_categories):
-                print(f"{i+1}. {category}")
-            selected_index = input("Enter the number corresponding \nto your choice: ")
-
-            selected_category = distinct_categories[int(selected_index) - 1]
-            amazon_df.at[index, 'Sub Category'] = selected_category
-
-        #add notes column
-        amazon_df['Notes'] = ''
-        for index, row in amazon_df.iterrows():
-            date = pd.to_datetime(row['Transaction Date']).strftime('%m/%d/%y')
-            description = row['Description']
-            spent = row['Spent']
-            store = row['Store']
-            
-            user_input = input(f"On {date}, there was a ${float(spent):.2f} charge on {store}. What was this? If no note needed, just press Enter with no text")
-            amazon_df.at[index,'Notes'] = user_input
-
-
-        # add notes column to main df
-        non_multistore_df = upload_df[['Transaction Date','Store','Spent','Refunded','Category','Sub Category']]
-        non_multistore_df['Notes']=''
-        upload_df = pd.concat([non_multistore_df, amazon_df], ignore_index=True)
-        upload_df = upload_df.drop(columns='Description')
-        upload_df = upload_df.sort_values(by=['Transaction Date','Store'], ascending=[False, True]).reset_index(drop=True)
-        #figure out best way to add notes
-
-        # TRAVEL LOGIC
-        worksheet = spreadsheet.worksheet('Travel Dates')
-        data = worksheet.get_all_values()
-        travel_df = pd.DataFrame(data[1:], columns=data[0])
-        new_rows = []
-
-        # Iterate through each row in the travel_df
-        for index, row in travel_df.iterrows():
-            start_date = pd.to_datetime(row['Start Date'], format='%a, %m/%d/%y')
-            end_date = pd.to_datetime(row['End Date'], format='%a, %m/%d/%y')
-            notes = row['Notes (required)']
-            date_range = pd.date_range(start=start_date, end=end_date)
-            for date in date_range:
-                new_rows.append({'Date': date.strftime('%a, %m/%d/%y'), 'Notes (required)': notes})
-        travel_df = pd.DataFrame(new_rows)
-        travel_df['Date'] = pd.to_datetime(travel_df['Date'], format='%a, %m/%d/%y')
-        travel_df = travel_df.sort_values(by=['Date']).reset_index(drop=True)
-
-
-        #list of categories that can fall under travel
-        travel_categories = ['Drinks','Event','Food','Gas','Self Care','Splurging','Travel','Hotel']
-
-        # add to this list where you know subcategories should not be included in travel expenses
-        not_travel_subcategories = ['Home Improvement','Etsy','Pet','Science Center','Games','Car Insurance']
-
-
-        #look at main_df, if category is in list and transaction date is in travel_df, then change to Travel category and move Category to Sub Category
-        upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
-        travel_df['Date'] = pd.to_datetime(travel_df['Date'])
-
-        upload_df = upload_df.merge(travel_df, left_on='Transaction Date', right_on='Date', how='left')
-        upload_df = upload_df.drop(columns=['Date'])
-        upload_df = upload_df.rename(columns={'Notes (required)':'Travel'})
-        upload_df['Travel'].fillna('', inplace=True)
-
-        #if Travel Day = 'Yes' and Category in travel_categories, then make adjustments
-        condition = upload_df['Travel'] != ''
-        sub_category_present = upload_df['Sub Category'] != ''
-        not_in_not_travel_subcategories = upload_df['Sub Category'].isin(not_travel_subcategories)
-
-        upload_df.loc[condition & sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = upload_df['Category'] + ' - ' + upload_df['Sub Category']
-        upload_df.loc[condition & ~sub_category_present & ~not_in_not_travel_subcategories, 'Sub Category'] = upload_df['Category']
-        upload_df.loc[condition & ~not_in_not_travel_subcategories, 'Category'] = 'Travel'
-
-        #if non travel purchase made during travel, then remove value under Travel column
-        mask = (upload_df['Travel'].notnull()) & (upload_df['Category'] != 'Travel')
-        upload_df.loc[mask, 'Travel'] = ''
-
-
-        # get ready for Google Sheets upload
-        #if we have a blank store, then pull in the description. Left join the transaction date, spent, and refunded columns to original df
-        blank_store = upload_df[upload_df['Store'] == ''].copy().reset_index(drop=True)
-        upload_df = upload_df[upload_df['Store'] != ''].reset_index(drop=True)
-
-        # a bunch of datatype casting for a left join..silliness.
-        original_upload_df['Transaction Date'] = pd.to_datetime(original_upload_df['Transaction Date'])
-        blank_store['Transaction Date'] = pd.to_datetime(blank_store['Transaction Date'])
-        original_upload_df['Spent'] = pd.to_numeric(original_upload_df['Spent'], errors='coerce').fillna(0)
-        original_upload_df['Refunded'] = pd.to_numeric(original_upload_df['Refunded'], errors='coerce').fillna(0)
-        blank_store['Spent'] = pd.to_numeric(blank_store['Spent'], errors='coerce').fillna(0)
-        blank_store['Refunded'] = pd.to_numeric(blank_store['Refunded'], errors='coerce').fillna(0)
-        blank_store = pd.merge(blank_store, original_upload_df, on=['Transaction Date', 'Spent', 'Refunded'], how='left')
-        blank_store['Store'] = blank_store['Description']
-        blank_store = blank_store.drop(columns=['Description'])
-
-        #combined df's back together and reorder and reset index
-        upload_df = pd.concat([upload_df, blank_store], ignore_index=True)
-        upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
-        upload_df = upload_df.sort_values(by=['Transaction Date']).reset_index(drop=True)
-        upload_df = upload_df.fillna('')
-
-        #add column that gets category totals partitioned by cycle date
-        upload_df['Spent'] = pd.to_numeric(upload_df['Spent'], errors='coerce')
-        upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
-        upload_df = upload_df.sort_values(by='Transaction Date')
-
-        # we want to combine these new rows with what we originally had pulled from "Credit Card Output", then replace everything in google sheets
-        #combine original_output_data with main_df
-        if len(upload_df)>0:
-            upload_df = pd.concat([upload_df,original_output_data],ignore_index=True)
-            if 'combo' in upload_df.columns:
-                upload_df = upload_df.drop('combo', axis=1)
-            if 'Cycle Totals' in upload_df.columns:
-                upload_df = upload_df.drop('Cycle Totals', axis=1)
-                                    
-            upload_df['Refunded'] = upload_df['Refunded'].replace(0, '')
-            
-            #rolling 12 months col for pivot table
-            upload_df['Transaction Date'] = pd.to_datetime(upload_df['Transaction Date'])
-            upload_df['MonthTrunc'] = upload_df['Transaction Date'].dt.to_period('M')
-            max_month = upload_df['MonthTrunc'].max()
-            upload_df['Rolling12'] = ['Yes' if (max_month - x).n <= 12 else 'No' for x in upload_df['MonthTrunc']]
-            #drop monthtrunc
-            upload_df = upload_df.drop(columns='MonthTrunc')
-
-            #format and sort
-            upload_df = upload_df.sort_values(by=['Transaction Date','Travel']).reset_index(drop=True)
-            upload_df['Transaction Date'] = upload_df['Transaction Date'].astype(str)
-            upload_df['Spent'] = upload_df['Spent'].astype(float)
-            upload_df['Spent'] = upload_df['Spent'].fillna('')
-
-            #upload
-            worksheet = spreadsheet.worksheet('Outputs')
-            worksheet.range(sheets_info_dict[method][1]).clear()
-            data = upload_df.values.tolist()
-            worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
-
-            
-            
+    worksheet = spreadsheet.worksheet('Outputs')
+    worksheet.range(sheets_info_dict[method][1]).clear()
+    data = upload_df.values.tolist()
+    worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')

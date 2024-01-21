@@ -158,26 +158,27 @@ if len(upload_df) > 0:
     worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
 
     #pivot upload
-    pivot_df['Month'] = pivot_df['Month'].astype(str)
-    worksheet = spreadsheet.worksheet('Graph Data')
-    range_to_clear = 'A2:F'+ str(len(pivot_df))
-    worksheet.batch_clear([range_to_clear])
-    data = pivot_df.values.tolist()
-    worksheet.update('A2', data, value_input_option='USER_ENTERED')
-
+    # pivot_df['Month'] = pivot_df['Month'].astype(str)
+    # worksheet = spreadsheet.worksheet('Graph Data')
+    # range_to_clear = 'A2:F'+ str(len(pivot_df))
+    # worksheet.batch_clear([range_to_clear])
+    # data = pivot_df.values.tolist()
+    # worksheet.update('A2', data, value_input_option='USER_ENTERED')
 
     #roth upload
+    method = 'ira_graph'
     roth_df['Month'] = roth_df['Month'].astype(str)
     worksheet = spreadsheet.worksheet('Outputs')
-    range_to_clear = 'AQ3:AW'+ str(len(roth_df))
+    range_to_clear = sheets_info_dict[method][1] + str(len(roth_df))
     worksheet.batch_clear([range_to_clear])
     data = roth_df.values.tolist()
-    worksheet.update('AQ3', data, value_input_option='USER_ENTERED')
+    worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
 
     #taxable upload
+    method = 'taxable_graph'
     taxable_df['Month'] = taxable_df['Month'].astype(str)
     worksheet = spreadsheet.worksheet('Outputs')
-    range_to_clear = 'AZ3:BE'+ str(len(taxable_df))
+    range_to_clear = sheets_info_dict[method][1] + str(len(taxable_df))
     worksheet.batch_clear([range_to_clear])
     data = taxable_df.values.tolist()
-    worksheet.update('AZ3', data, value_input_option='USER_ENTERED')
+    worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
