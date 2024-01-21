@@ -60,6 +60,13 @@ data = worksheet.get(range_to_pull)
 budget_df = pd.DataFrame(data[1:], columns=data[0])
 budget_df['Budget'] = budget_df['Budget'].str.replace('$', '').astype(float).fillna(0)
 
+#credit card cycle dates df
+worksheet = spreadsheet.worksheet('Config')
+range_to_pull = 'Q1:S'
+data = worksheet.get(range_to_pull)
+important_dates_df = pd.DataFrame(data[1:], columns=data[0])
+important_dates_df['Date'] = pd.to_numeric(important_dates_df['Date'], errors='coerce').astype('Int64')
+
 
 #################### GOOGLE SHEETS OUTPUT INFO ####################
 #output ranges, used for original output and new output
@@ -68,7 +75,9 @@ sheets_info_dict = {
     'savings': ['M3','M3:P'],
     'checking': ['S3','S3:Y'],
     'fidelity': ['AB3','AB3:AI'],
-    'bills': ['AM3','AL3:AO']
+    'bills': ['AM3','AL3:AO'],
+    'ira_graph': ['AR3','AR3:AZ'],
+    'taxable_graph':['BA3','BA3:BF']
 }
 
 ##################### UPLOAD DATAFRAMES ####################
@@ -107,7 +116,6 @@ def remove_blank_rows(df):
     return df
 
 #credit card upload df
-# section = 'NFCU CREDIT CARD'
 section = 'CHASE CREDIT CARD'
 worksheet = spreadsheet.worksheet('Uploads')
 data = worksheet.get_all_values()
@@ -183,17 +191,6 @@ water_df = pd.DataFrame(data[2:], columns=data[1])
 water_df = water_df.iloc[:, start_index:end_index]
 water_df = remove_blank_rows(water_df)
 water_df = water_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
-
-
-#water upload df
-section = 'CHASE CREDIT CARD'
-worksheet = spreadsheet.worksheet('Uploads')
-data = worksheet.get_all_values()
-start_index, end_index, result_data = extract_section_data(data, section)
-chase_df = pd.DataFrame(data[2:], columns=data[1])
-chase_df = chase_df.iloc[:, start_index:end_index]
-chase_df = remove_blank_rows(chase_df)
-chase_df = chase_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
 
 
 #put into dictionary so we can reference as variables in scripts
