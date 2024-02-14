@@ -58,7 +58,7 @@ worksheet = spreadsheet.worksheet('Config')
 range_to_pull = 'M1:O'
 data = worksheet.get(range_to_pull)
 budget_df = pd.DataFrame(data[1:], columns=data[0])
-budget_df['Budget'] = budget_df['Budget'].str.replace('$', '').astype(float).fillna(0)
+budget_df['Budget'] = budget_df['Budget'].str.replace('[\$,]', '', regex=True).astype(float).fillna(0)
 
 #credit card cycle dates df
 worksheet = spreadsheet.worksheet('Config')
@@ -354,13 +354,31 @@ electric_bill_date = 12
 
 
 
+################## BUCKETS_DF FROM SETUP PAGE ##################
+worksheet = spreadsheet.worksheet('Setup')
+range_to_pull = 'B2:D'
+data = worksheet.get(range_to_pull)
+filtered_data = [row for row in data if len(row) == 3]
+
+# Create a DataFrame
+goals_df = pd.DataFrame(filtered_data, columns=['Category', 'Item', 'Amount'])
+goals_df = goals_df.rename(columns={'Category': 'Bucket', 'Item': 'Category'})
+# goals_df = goals_df[~goals_df['Category'].str.contains(r'(\$|Gross)', na=False)].reset_index(drop = True)
+goals_df = goals_df[~goals_df['Category'].str.contains(r'(\$|Gross|Taxes)', na=False)].reset_index(drop = True)
+mask = (goals_df['Bucket'] == 'Monthly') & (goals_df['Category'] == 'Total')
+goals_df.loc[mask, 'Category'] = 'Gross'
 
 
+#get net pay
+net_pay_data = [row for row in data if row and 'Net Pay (into Chase)' in row[0]]
+net_df_temp = pd.DataFrame(net_pay_data, columns=['Category', 'Amount'])
+net_df_temp['Bucket'] = 'Monthly'
+net_df_temp = net_df_temp[['Bucket','Category','Amount']]
 
-
-
-
-
+#concat df's
+goals_df = pd.concat([goals_df,net_df_temp],ignore_index = True)
+row_19 = goals_df.iloc[19]
+goals_df = pd.concat([goals_df.iloc[:1], goals_df.iloc[-1:], goals_df.iloc[1:-1]], ignore_index=True)
 
 
 
