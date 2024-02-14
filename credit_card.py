@@ -1,6 +1,7 @@
 ############################################## Setup ###############################################
 #import setup
 from folder_constants import *
+from datetime import date, datetime, timedelta
 
 #pick the needed df's from folder_constants.py
 method = 'credit_card'
@@ -34,6 +35,9 @@ upload_df.loc[upload_df['Description'].str.lower().str.contains('clubpilates', n
 upload_df.loc[upload_df['Description'].str.lower().str.contains('aim diamond h', na=False), 'Description'] = 'Diamond Head'
 upload_df.loc[upload_df['Description'].str.lower().str.contains('dusk fest', na=False), 'Description'] = 'Dusk Music Festival'
 upload_df.loc[upload_df['Description'].str.lower().str.contains('payment thank you-mobile', na=False), 'Description'] = 'Credit Card Paid'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('footprint center', na=False), 'Description'] = 'Suns Game'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('arena park place', na=False), 'Description'] = 'Suns Game Parking'
+upload_df.loc[upload_df['Description'].str.lower().str.contains('sprouts farmers', na=False), 'Description'] = 'Sprouts Farmers Market'
 
 frys_pattern = r'frys|fry\'s' #change strings with "Fry's" or "Frys" to simply "Frys"
 upload_df.loc[upload_df['Description'].str.lower().str.contains('frys|fry\'s', na=False), 'Description'] = 'Frys'
@@ -162,6 +166,15 @@ max_month = upload_df['MonthTrunc'].max()
 upload_df['Rolling12'] = ['Yes' if (max_month - x).n <= 12 else 'No' for x in upload_df['MonthTrunc']]
 upload_df = upload_df.drop(columns='MonthTrunc')
 
+################################## Add General Category For Graph ##################################
+upload_df['high_level'] = 'Open Spending'  # Default value for all other cases
+upload_df = upload_df[['Transaction Date','Store','Spent','Refunded','high_level','Category','Sub Category','Notes','Travel','Cycle','Rolling12']]
+upload_df.loc[(upload_df['Category'] == 'Food') & (upload_df['Sub Category'] == 'In'), 'high_level'] = 'Food'
+upload_df.loc[upload_df['Category'] == 'Gas', 'high_level'] = 'Gas'
+upload_df.loc[upload_df['Category'] == 'Bills', 'high_level'] = 'Bills'
+upload_df = upload_df.rename(columns={'high_level':'General'})
+
+
 
 
 ############################### Compare to What's Already in Sheets ################################
@@ -176,7 +189,7 @@ upload_df = remove_rows_already_saved(original_output_data,upload_df)
 
 ##################### Fix Amazon/Department Store Categories and Sub Categories ####################
 #create a list of stores to include as Amazon/Department Stores
-multi_store_list = ['Amazon', 'Costco', 'Target']
+multi_store_list = ['Amazon', 'Costco', 'Target','Walgreens','CVS']
 
 multi_store_df = upload_df[upload_df['Store'].isin(multi_store_list)].reset_index(drop=True)
 upload_df = upload_df[~upload_df['Store'].isin(multi_store_list)].reset_index(drop=True)
@@ -215,6 +228,192 @@ upload_df = pd.concat([multi_store_df, upload_df], ignore_index=True)
 
 
 
+######################################## Budget Graph Setup ########################################
+chase_date = important_dates_df.loc[important_dates_df['Category'] == 'Chase', 'Date'].values[0]
+today_date = datetime.today()
+today_day_number = today_date.day
+if today_day_number > chase_date:
+    start_date = datetime(today_date.year, today_date.month, chase_date)
+    end_date = datetime(today_date.year, today_date.month + 1, chase_date - 1)
+else:
+    # If today's day number is not greater than chase_date, start from last month
+    last_month = today_date.replace(day=1) - timedelta(days=1)
+    start_date = datetime(last_month.year, last_month.month, chase_date)
+    end_date = datetime(today_date.year, today_date.month, chase_date)
+# Convert start_date and end_date to date objects
+start_date = start_date.date()
+end_date = end_date.date()
+# Create range of dates starting from the start date to the end date
+date_range = pd.date_range(start_date, end_date, freq='D')
+credit_card_graph_df = pd.DataFrame({'date': date_range})
+#now get simplified budget_df, just consolidating some columns (combine retirement with fidelity with crypto into Investing, etc)
+credit_card_budget_items = budget_df[budget_df['Type'].isin(['Static', 'Varies'])].copy()
+#pull numbers in, divide by number of days if varies, keep static if static
+
+credit_card_graph_df['date'] = pd.to_datetime(credit_card_graph_df['date'])
+
+running_totals = {}
+
+# Create separate columns for each budget item
+for index, row in credit_card_budget_items.iterrows():
+    budget_item = row['Category']
+    budget_type = row['Type']
+    budget_value = row['Budget']
+
+    if budget_type == 'Static':
+        credit_card_graph_df[budget_item] = budget_value
+    elif budget_type == 'Varies':
+        daily_amount = budget_value / len(credit_card_graph_df)
+        credit_card_graph_df[budget_item] = credit_card_graph_df['date'].apply(lambda x: daily_amount)
+
+# Calculate cumulative totals for 'Varies' columns
+varies_columns = credit_card_budget_items[credit_card_budget_items['Type'] == 'Varies']['Category'].tolist()
+
+for col in varies_columns:
+    credit_card_graph_df[col] = credit_card_graph_df[col].cumsum()
+
+#format new df
+round_columns = ['Bills', 'Open Spending', 'Gas', 'Food']
+credit_card_graph_df[round_columns] = credit_card_graph_df[round_columns].round(2)
+credit_card_graph_df = credit_card_graph_df.rename(columns={
+    'date':'Date',
+    'Bills':'Bills Budget',
+    'Open Spending':'Open Spending Budget',
+    'Gas':'Gas Budget',
+    'Food':'Food Budget'})
+
+#want to drop bills budget..then add actuals
+credit_card_graph_df.drop('Bills Budget', axis=1, inplace=True)
+
+# Create new columns for Gas Actual, Food Actual, and Open Spending Actual
+credit_card_graph_df['Gas Actual'] = ""
+credit_card_graph_df['Food Actual'] = ""
+credit_card_graph_df['Open Spending Actual'] = ""
+credit_card_graph_df = credit_card_graph_df[['Date','Gas Actual','Gas Budget','Food Actual','Food Budget','Open Spending Actual','Open Spending Budget']]
+
+
+#now we want to add actuals
+actuals_df = upload_df[['Transaction Date', 'General', 'Spent']].copy()
+actuals_df = actuals_df[actuals_df['Spent'] != 'nan']
+actuals_df['Spent'] = pd.to_numeric(actuals_df['Spent'], errors='coerce').fillna(0)
+actuals_df = actuals_df.groupby(['Transaction Date', 'General'])['Spent'].sum().reset_index()
+actuals_df = actuals_df.sort_values(by=['Transaction Date', 'General']).reset_index(drop=True)
+#remove bills portion
+actuals_df = actuals_df[actuals_df['General'] != 'Bills']
+
+#make category df's and left join each creating a new column
+credit_card_graph_df['Date'] = pd.to_datetime(credit_card_graph_df['Date'])
+
+categories = actuals_df['General'].unique()
+credit_card_graph_df['Gas Actual'] = pd.to_numeric(credit_card_graph_df['Gas Actual'], errors='coerce').astype(float)
+credit_card_graph_df['Food Actual'] = pd.to_numeric(credit_card_graph_df['Food Actual'], errors='coerce').astype(float)
+credit_card_graph_df['Open Spending Actual'] = pd.to_numeric(credit_card_graph_df['Open Spending Actual'], errors='coerce').astype(float)
+
+for category in categories:
+    category_actuals = actuals_df[actuals_df['General'] == category].copy()
+    category_actuals['Transaction Date'] = pd.to_datetime(category_actuals['Transaction Date'])
+    credit_card_graph_df = pd.merge(credit_card_graph_df, category_actuals, left_on='Date', right_on='Transaction Date', how='left')
+    credit_card_graph_df = credit_card_graph_df.rename(columns={'Spent': f'{category} Actual'})
+    credit_card_graph_df = credit_card_graph_df.drop(columns=['Transaction Date', 'General'])
+    credit_card_graph_df[f'{category} Actual'] = credit_card_graph_df[f'{category} Actual'].fillna(0)
+    credit_card_graph_df[f'{category} Actual'] = credit_card_graph_df[f'{category} Actual'].cumsum().shift(fill_value=0)
+
+credit_card_graph_df = credit_card_graph_df[['Date','Gas Actual','Gas Budget','Food Actual','Food Budget','Open Spending Actual','Open Spending Budget']]
+
+#some columns have all 0s for some reason, they're duplicated in the join..just delte the col with all 0s
+credit_card_graph_df = credit_card_graph_df.loc[:, (credit_card_graph_df != 0).any(axis=0)]
+
+#finally, remove values from actual columns that are beyond current date
+current_date = datetime.now()
+for col in credit_card_graph_df.columns:
+    if "Actual" in col:
+        for index, row in credit_card_graph_df.iterrows():
+            if row['Date'] > current_date:
+                credit_card_graph_df.at[index, col] = None
+
+
+########################################### Create Graph ###########################################
+import matplotlib.pyplot as plt
+from matplotlib import colors,dates
+from matplotlib.ticker import FuncFormatter
+
+date_format = "%Y-%m-%d"
+credit_card_graph_df['Date'] = pd.to_datetime(credit_card_graph_df['Date'], format=date_format)
+# Define the budget columns to be displayed in the graph 
+combined_budget_columns = ['Open Spending Budget', 'Gas Budget', 'Food Budget']
+combined_actual_columns = ['Open Spending Actual', 'Gas Actual', 'Food Actual']
+category_colors = {'Open': '#90a091', 'Gas': '#767790', 'Food': '#c3a668'}
+
+#create graph
+fig, ax = plt.subplots(figsize=(12, 6))
+# Loop through each combined budget column and plot on the same graph with different colors
+for i, (budget_column, actual_column) in enumerate(zip(combined_budget_columns, combined_actual_columns)):
+    category = budget_column.split(' ')[0]  # Extract category from column name
+    color = category_colors.get(category, 'black')  # Use black if category is not defined
+    
+    ax.plot(credit_card_graph_df['Date'], credit_card_graph_df[budget_column], linestyle='-', color=color, label=f'{category} Budget', linewidth = 3)
+    ax.plot(credit_card_graph_df['Date'], credit_card_graph_df[actual_column], linestyle='--', color=color, label=f'{category} Actual', linewidth = 3)
+
+title = ax.set_title('Current Cycle', loc='left',color='#757575', fontname='Calibri',fontweight='bold', fontsize=18)
+ax.set_xlabel('')
+ax.set_ylabel('')
+plt.xticks(credit_card_graph_df['Date'], rotation=90, fontsize=8)
+
+legend1 = ax.legend(prop={'family': 'Calibri', 'size': 12})
+
+# Add a line item for "Bills Budget" in the second legend
+bills_actual = credit_card_graph_df['Bills Actual'].max()
+font_color = 'black'
+bg_color = 'white'
+bills_actual_text = f"{bills_actual:,.0f}"
+if bills_actual > credit_card_graph_df['Bills Budget'][0]:
+    font_color = colors.rgb2hex((156/255, 0/255, 6/255)) #rgb values match excel conditional formatting red
+    bg_color = colors.rgb2hex((255/255, 199/255, 206/255))
+
+bills_budget_text = f"Bills: \${bills_actual_text} out of \${credit_card_graph_df['Bills Budget'][0]:,.0f}"
+
+# Create a second legend (textbox) for needs since it's static amount
+legend_border_color = ax.get_legend().get_frame().get_edgecolor()
+ax.text(0.0127, 0.6275, bills_budget_text, transform=ax.transAxes, ha='left', va='center', 
+        bbox=dict(facecolor=bg_color, edgecolor=legend_border_color, boxstyle='round,pad=0.3'), color=font_color,
+        fontname='Calibri', fontsize=13)
+ax.add_artist(legend1)
+# Format y-axis and make grid lines lighter color
+formatter = FuncFormatter(lambda x, _: '${:,.0f}'.format(x))
+ax.yaxis.set_major_formatter(formatter)
+ax.xaxis.set_major_formatter(dates.DateFormatter('%b %d'))
+ax.grid(color='#DDDDDD')
+ax.spines['top'].set_visible(False)
+ax.set_facecolor('#f3f3f3')
+fig.patch.set_facecolor('#f3f3f3')
+# title.set_position((-0.1, 0))
+# plt.subplots_adjust(left=0.4) 
+
+
+#upload to imgur
+from imgurpython import ImgurClient
+from io import BytesIO
+
+# Save the plot to a BytesIO object
+img_buf = BytesIO()
+plt.savefig(img_buf, format='png', bbox_inches='tight')
+img_buf.seek(0)
+
+# Save the BytesIO content to a file
+img_filename = 'budget_graph.png'
+with open(img_filename, 'wb') as img_file:
+    img_file.write(img_buf.read())
+client_id = imgur_client_id
+client_secret = imgur_client_secret
+client = ImgurClient(client_id, client_secret)
+
+# Upload image
+uploaded_image = client.upload_from_path(img_filename, config=None, anon=True)
+imgur_url = uploaded_image['link']
+
+formula_string = f'=IMAGE("{imgur_url}", 4, 419, 877)'
+
+
 ######################################### Upload to Sheets #########################################
 if len(upload_df) > 0:
     upload_df = pd.concat([upload_df,original_output_data],ignore_index=True) #combine new rows with what's in google sheets already
@@ -233,3 +432,9 @@ if len(upload_df) > 0:
     worksheet.range(sheets_info_dict[method][1]).clear()
     data = upload_df.values.tolist()
     worksheet.update(sheets_info_dict[method][0], data, value_input_option='USER_ENTERED')
+
+
+    #add imgur formulas 
+    worksheet = spreadsheet.worksheet('Overview')
+    worksheet.update('J43', formula_string, value_input_option='USER_ENTERED')
+
