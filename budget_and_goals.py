@@ -3,7 +3,7 @@ from folder_constants import *
 
 #Pull from google sheets
 worksheet = spreadsheet.worksheet('Setup')
-data = worksheet.get('B:D')
+data = worksheet.get('B:C')
 goals_df = pd.DataFrame(data, columns=['Category', 'Bucket', 'Monthly'])
 
 #setup goals_df

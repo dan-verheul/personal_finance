@@ -115,6 +115,16 @@ def remove_blank_rows(df):
     df = df.fillna('')
     return df
 
+#checking upload df
+section = 'CHASE CHECKING'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+checking_df = pd.DataFrame(data[2:], columns=data[1])
+checking_df = checking_df.iloc[:, start_index:end_index]
+checking_df = remove_blank_rows(checking_df)
+checking_df = checking_df.drop(columns=['Details','Type','Check or Slip #'])
+
 #credit card upload df
 section = 'CHASE CREDIT CARD'
 worksheet = spreadsheet.worksheet('Uploads')
@@ -140,16 +150,6 @@ savings_df = pd.DataFrame(data[2:], columns=data[1])
 savings_df = savings_df.iloc[:, start_index:end_index]
 savings_df = remove_blank_rows(savings_df)
 savings_df = savings_df.drop(columns=['Time'])
-
-#checking upload df
-section = 'ALLY CHECKING'
-worksheet = spreadsheet.worksheet('Uploads')
-data = worksheet.get_all_values()
-start_index, end_index, result_data = extract_section_data(data, section)
-checking_df = pd.DataFrame(data[2:], columns=data[1])
-checking_df = checking_df.iloc[:, start_index:end_index]
-checking_df = remove_blank_rows(checking_df)
-checking_df = checking_df.drop(columns=['Time'])
 
 #fidelity upload df
 section = 'FIDELITY - ALL ACCOUNTS'
@@ -181,6 +181,14 @@ electric_df = remove_blank_rows(electric_df)
 electric_df = electric_df.rename(columns={'Bill date':'Date','New charges':'Electric'})
 electric_df = electric_df[['Date','Electric']]
 
+#gas upload df
+section = 'GAS'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+gas_df = pd.DataFrame(data[2:], columns=data[1])
+gas_df = gas_df.iloc[:, start_index:end_index]
+gas_df = remove_blank_rows(gas_df)
 
 #water upload df
 section = 'WATER'
@@ -192,15 +200,36 @@ water_df = water_df.iloc[:, start_index:end_index]
 water_df = remove_blank_rows(water_df)
 water_df = water_df.rename(columns={'Bill Date':'Date','Bill Total':'Water'})
 
+#dan 401k from NCSA upload df
+section = 'Dan 401k - Empower RET'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+dan_ncsa_401k_df = pd.DataFrame(data[2:], columns=data[1])
+dan_ncsa_401k_df = dan_ncsa_401k_df.iloc[:, start_index:end_index]
+dan_ncsa_401k_df = remove_blank_rows(dan_ncsa_401k_df)
+
+#net worth upload df
+section = 'Net Worth'
+worksheet = spreadsheet.worksheet('Uploads')
+data = worksheet.get_all_values()
+start_index, end_index, result_data = extract_section_data(data, section)
+net_worth_df = pd.DataFrame(data[2:], columns=data[1])
+net_worth_df = net_worth_df.iloc[:, start_index:end_index]
+net_worth_df = remove_blank_rows(net_worth_df)
+
 
 #put into dictionary so we can reference as variables in scripts
 upload_df_dictionary = {
+    'checking': checking_df,
     'credit_card': credit_card_df,
     'savings': savings_df,
-    'checking': checking_df,
     'fidelity': fidelity_df,
     'electric': electric_df,
-    'water': water_df
+    'gas': gas_df,
+    'water': water_df,
+    'dan_ncsa_401k': dan_ncsa_401k_df,
+    'net_worth': net_worth_df
 }
 
 
